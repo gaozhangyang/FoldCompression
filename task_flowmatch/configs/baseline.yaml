@@ -1,0 +1,75 @@
+# config.yaml
+
+train:
+  cluster_path: ./data/train_keys_subset.msgpack
+  database_path: ./data/afdb_rep_mem_debug.db
+  num_gpus: 1
+  num_nodes: 1
+  num_steps: 50000
+  early_stop_on_step: null
+  warmup_steps: 2000
+  num_dataset_workers: 8
+  val_check_interval: 40
+  log_every_n_steps: 40
+
+logging:
+  precision: bf16
+  lr: 4e-4
+  scheduler_num_steps: null
+  create_tflops_callback: false
+  create_tensorboard_logger: true
+  resume_if_exists: true
+  result_dir: ./results/esm2-demo/
+  experiment_name: esm2
+
+wandb:
+  wandb_entity: gaozhangyang
+  wandb_project: foldtoken5
+  wandb_tags: null
+  wandb_group: ${logging.experiment_name}
+  wandb_job_type: null
+  wandb_id: null
+  wandb_anonymous: false
+  wandb_log_model: false
+  wandb_offline: true
+
+
+
+parallel:
+  min_seq_length: 1024
+  max_seq_length: 1024
+  limit_val_batches: 4
+  micro_batch_size: 8
+  pipeline_model_parallel_size: 1
+  tensor_model_parallel_size: 1
+  accumulate_grad_batches: 1
+
+model:
+  biobert_spec_option: esm2_bert_layer_with_transformer_engine_spec
+  nemo1_init_path: null
+  random_mask_strategy: all_token
+  num_layers: 12
+  hidden_size: 480
+  num_attention_heads: 20
+  ffn_hidden_size: 1920
+  decoder_first_pipeline_num_layers: null
+
+checkpoint:
+  create_checkpoint_callback: true
+  save_best_checkpoint: true
+  save_last_checkpoint: true
+  metric_to_monitor_for_checkpoints: val_loss
+  save_top_k: 2
+  restore_from_checkpoint_path: null
+
+nsys_profiling:
+  enabled: false
+  start_step: 0
+  end_step: null
+  ranks: [0]
+
+ddp:
+  no_overlap_grad_reduce: false
+  no_overlap_param_gather: false
+  no_average_in_collective: false
+  grad_reduce_in_fp32: false
