@@ -78,7 +78,7 @@ class ESMDataModule(DataInterfaceBase):
         self.train_cluster = train_cluster
         self.val_cluster = val_cluster
         self.test_cluster = test_cluster
-        
+
         self.data_sampler = MegatronDataSampler(
             seq_len=self.hparams.max_seq_length,
             micro_batch_size=self.hparams.micro_batch_size,

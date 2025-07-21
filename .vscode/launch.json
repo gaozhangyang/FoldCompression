@@ -5,7 +5,7 @@
       "name": "Run task",
       "type": "python",
       "request": "launch",
-      "justMyCode": true,
+      // "justMyCode": true,
       "program": "${workspaceFolder}/task/main.py",
       "console": "integratedTerminal",
       "args": [
@@ -18,7 +18,7 @@
         "--num-gpus", "1",
         "--num-nodes", "1",
         "--num-steps", "1000010",
-        "--result-dir", "./results/struct_compress/",
+        "--result-dir", "./results/struct_compress_debugwh/",
         "--max-seq-length", "512",
         "--resume-if-exists",
         "--limit-val-batches", "4",
@@ -30,7 +30,8 @@
         "--tensor-model-parallel-size", "1",
         "--create-tensorboard-logger",
         "--lr", "0.00",
-        "--experiment-name", "baseline_prefix32_len512_dec1_1M_bs32_run3_infer",
+        "--infer_feats", "0",
+        "--experiment-name", "baseline_prefix32_len512_dec1_1M_bs32_run3_infer_wh",
         // "--data-splits", "90, 5, 5" 
         "--data-splits", "9990, 5, 5",
         "--prefix_len", "32",

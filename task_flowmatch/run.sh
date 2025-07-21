@@ -9,11 +9,11 @@ python ./task_flowmatch/main.py \
     --database-path /nfs_beijing_os/linlinchao/afdb/rep_mem_v2/compression_data.lmdb \
     --data-splits '9990, 5, 5' \
     --precision="bf16" \
-    --num-gpus 8 \
+    --num-gpus 1 \
     --num-nodes 1 \
     --num-steps 1000000 \
     --val-check-interval 10000 \
-    --result-dir ./results/struct_compress_FM/ \
+    --result-dir ./results/struct_compress_FM_debug/ \
     --min-seq-length 512 \
     --max-seq-length 512 \
     --resume-if-exists \
