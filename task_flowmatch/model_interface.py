@@ -5,7 +5,7 @@ from typing import Iterator, Optional, Dict
 import torch
 from bionemo.llm.api import MegatronModelType, MegatronLossType
 from src.interface.model_interface_base import ModelInterfaceBase
-from src.model.foldtoken_model_simplify import FoldCompressionConfig, FoldCompressionFMModel
+from src.model.foldtoken_model_simplify import FoldCompressionConfig, FoldCompressionFMModel,LatentFMModel
 from bionemo.llm.model.biobert.lightning import get_batch_on_this_context_parallel_rank
 from typing import Iterator, Optional, Dict, Any
 from .loss import compute_custom_loss
@@ -61,7 +61,7 @@ class BionemoLightningModule(
 
     def configure_model(self) -> None:
         """Instantiate the FoldCompressionModel and assign to self.module"""
-        self.module = FoldCompressionFMModel(
+        self.module = LatentFMModel(
             self.config,
             self.hparams.enc_layers,
             self.hparams.dec_layers,
@@ -77,42 +77,32 @@ class BionemoLightningModule(
             _batch = batch[0]
         else:
             _batch = batch
-        _batch = {k: v.cuda(non_blocking=True) for k, v in _batch.items()}
+        
+        def to_cuda(x):
+            if isinstance(x, torch.Tensor):
+                return x.cuda(non_blocking=True)
+            elif isinstance(x, (list, tuple)):
+                return [to_cuda(i) for i in x]
+            elif isinstance(x, dict):
+                return {k: to_cuda(v) for k, v in x.items()}
+            else:
+                return x
+        
+        _batch = {k: to_cuda(v) for k, v in _batch.items()}
         return get_batch_on_this_context_parallel_rank(_batch)
 
     def forward_step(self, batch: Dict, mode='train') -> Dict:
         """Core forward: build attention mask, compute features, and run the model."""
-        data_id = batch['data_id']
-        attn_mask = (
-            (data_id[:, :, None] == data_id[:, None, :])
-            & (data_id[:, :, None] >= 0)
-            & (data_id[:, None, :] >= 0)
-        )
-        dummy_node = (data_id == -1)[..., None]
-        attn_mask = (attn_mask | dummy_node) & ~dummy_node.transpose(1, 2)
-
-        xt, t, v = self.sample_flow_batch(batch['coords'])
+        xt, t, v = self.sample_flow_batch(batch['value'])
           
-        B, L = batch['blocks'].shape[:2]
-        blocks = batch['blocks']
-        M = blocks.mean(dim=-2, keepdims=True)
-        base = blocks - M
-        base = base / (torch.norm(base, dim=-1, keepdim=True) + 1e-8)
-        V = torch.einsum('bqex,bqcx->bqec', base, blocks).reshape(B, L, -1)
-
-        
+        B, L = batch['value'].shape[:2]
         
         predX = self.module(
-                batch['position'],
-                batch['seq_ids'],
-                V,
-                batch['blocks'],
-                attn_mask,
                 xt,
                 t,
                 mode
             )
-        return {'predX': predX, 'mask': attn_mask, 'v':v}
+        return {'predX': predX,  'v':v}
     
 
 
@@ -120,7 +110,7 @@ class BionemoLightningModule(
         """Training step: set prefix length and run forward_step."""
         batch['prefix_len'] = self.hparams.prefix_len
         outputs = self.forward_step(batch)
-        loss, results = compute_custom_loss(outputs, batch)
+        loss, results = compute_custom_loss(outputs, batch, 'train')
         if self.is_on_logging_device():
             self.log("train_loss", results['loss'], on_step=True, on_epoch=True, prog_bar=True)
             for key, val in results.items():
@@ -133,9 +123,9 @@ class BionemoLightningModule(
         batch['prefix_len'] = self.hparams.prefix_len
         with torch.no_grad():
             self.module.eval()
-            outputs = self.forward_step(batch, 'val')
+            outputs = self.forward_step(batch, 'train')
             if self.is_on_logging_device():
-                loss, results = compute_custom_loss(outputs, batch, 'val')
+                loss, results = compute_custom_loss(outputs, batch, 'train')
                 for key, val in results.items():
                     if key != 'loss':
                         self.log("val_"+key, val, on_step=False, on_epoch=True, prog_bar=True)
@@ -147,6 +137,8 @@ class BionemoLightningModule(
         if not batch:
             return None
         return self.forward_step(batch)
+    
+
 
     def set_optimizer(self):
         optimizer = MegatronOptimizerModule(
@@ -197,7 +189,30 @@ class BionemoLightningModule(
         """
         # x0: [B, dim]
         z = torch.randn_like(x0)
-        t = torch.rand(x0.shape[0], 1 ,1, 1, device=x0.device)
+        t = torch.rand(x0.shape[0], 1, 1, device=x0.device)
         xt = (1 - t) * x0 + t * z
         v = z - x0
         return xt, t, v
+    
+    def init_process_group_if_needed(self, backend="gloo"):
+        import torch.distributed as dist
+        import os
+        os.environ['MASTER_ADDR'] = 'localhost'
+        os.environ['MASTER_PORT'] = '12355'
+        os.environ['RANK'] = '0'
+        os.environ['WORLD_SIZE'] = '1'
+
+
+        if not dist.is_initialized():
+            # 单进程用 gloo 足够
+            dist.init_process_group(backend=backend, init_method="env://", world_size=1, rank=0)
+
+    def extract_plain_state(self, ckpt_dir: str, output_path: str):
+        from megatron.core.dist_checkpointing import load_plain_tensors
+        # ⚠️ 一定要先初始化分布式 group
+        self.init_process_group_if_needed(backend="gloo")
+        # 加载 shard checkpoint 自动合并
+        state_dict = load_plain_tensors(ckpt_dir)
+        torch.save(state_dict, output_path)
+        print(f"✔️ Saved merged checkpoint at: {output_path}")
+        return state_dict

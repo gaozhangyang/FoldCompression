@@ -244,7 +244,7 @@ def main(
         ckpt_async_save=True,
         ckpt_parallel_load=True,
         num_layers_in_first_pipeline_stage=decoder_first_pipeline_num_layers,
-        ckpt_load_optimizer=False
+        # ckpt_load_optimizer=False
     )
 
     # for wandb integration
@@ -801,3 +801,33 @@ def get_parser():
 
 if __name__ == "__main__":
     train_esm2_entrypoint()
+    
+    
+    # import os
+    # import torch
+    # import torch.distributed as dist
+    # from megatron.core.dist_checkpointing import load_plain_tensors
+
+    # def init_process_group_if_needed(backend="gloo"):
+    #     import os
+    #     os.environ['MASTER_ADDR'] = 'localhost'
+    #     os.environ['MASTER_PORT'] = '12355'
+    #     os.environ['RANK'] = '0'
+    #     os.environ['WORLD_SIZE'] = '1'
+
+
+    #     if not dist.is_initialized():
+    #         # 单进程用 gloo 足够
+    #         dist.init_process_group(backend=backend, init_method="env://", world_size=1, rank=0)
+
+    # def extract_plain_state(ckpt_dir: str, output_path: str):
+    #     # ⚠️ 一定要先初始化分布式 group
+    #     init_process_group_if_needed(backend="gloo")
+    #     # 加载 shard checkpoint 自动合并
+    #     state_dict = load_plain_tensors(ckpt_dir)
+    #     torch.save(state_dict, output_path)
+    #     print(f"✔️ Saved merged checkpoint at: {output_path}")
+    #     return state_dict
+    
+    # params = extract_plain_state('/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/results/struct_compress_FM/latentFM/checkpoints/epoch=6-step=999999-consumed_samples=64000000.0-last/weights', '/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/results/struct_compress_FM/latentFM/checkpoints/ckpt.pt')
+    # print()

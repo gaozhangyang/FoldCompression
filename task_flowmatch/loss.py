@@ -35,46 +35,14 @@ def compute_custom_loss(
     """
     if mode == 'train':
         pred_X = output['predX']
-        V = output['v'][:,:,:5]
-        B, L, K, _ = V.shape
-        pred_X = pred_X.reshape(B, L, K, 3)
-        mask = batch['data_id']>0
-        prefix_len = batch['prefix_len']
-        
-        pred_X = pred_X[:,prefix_len:]
-        V = V[:,prefix_len:]
-        mask = mask[:,prefix_len:]
-        
-        loss = torch.sum((pred_X - V)**2*mask[...,None,None])/mask.sum()
+        V = output['v']
+        loss = torch.sum((pred_X - V)**2, dim=-1).mean()
         return loss, {'loss': loss}  # 返回未缩减的损失张量
     else:
-        pred_X, chain, X_true, loss_mask, prefix_len = output['predX'], batch['data_id'], batch['coords'][:,:,:5], batch['loss_mask'], batch['prefix_len']
-    
-        struct_loss = ReconstructionLosses(
-                rmsd_method='symeig', loss_scale=10.0
-            )
-        
-        pred_X_batch = pred_X
-        C_batch = chain
-        X_true_batch = X_true
-        
-        B,L = C_batch.shape
-        X_true_batch = X_true_batch.reshape(B,L,-1,3)
-        pred_X_batch = pred_X_batch.reshape(B,L,-1,3)
-        mask_batch = torch.isnan(X_true_batch.sum(dim=(-2,-1)))
-        C_batch[mask_batch]=-1
-        pred_X_batch[mask_batch]=0
-        X_true_batch[mask_batch]=0
-
-        results = struct_loss(pred_X_batch[:,prefix_len:], X_true_batch[:,prefix_len:], C_batch[:,prefix_len:])
-                       
-        out = {}
-        loss = 0
-        for key in ['batch_global_mse', 'batch_fragment_mse', 'batch_pair_mse', 'batch_neighborhood_mse', 'batch_distance_mse', 'batch_hb_local', 'batch_hb_nonlocal', 'batch_hb_contact_order']:
-            if results.get(key):
-                loss += results[key]
-                out.update({key: results[key]})
-        out.update({'loss': loss})
+        pred_X = output['predX']
+        V = batch['value']
+        loss = torch.sum((pred_X - V)**2, dim=-1).mean()       
+        out = {'loss': loss}
         return out['loss'], out  # 返回未缩减的损失张量
     
         
@@ -132,13 +100,10 @@ class CustomLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossReduc
         cp_size = parallel_state.get_context_parallel_world_size()
         # 先按 micro batch 中的 mask 做缩减
         if cp_size == 1:
-            loss_mb = masked_token_loss(unreduced_loss, batch.get('loss_mask', None))
+            loss_mb = unreduced_loss
         else:
-            loss_mb = masked_token_loss_context_parallel(
-                unreduced_loss,
-                batch.get('loss_mask', None),
-                batch.get('num_valid_tokens_in_ub', None),
-            )
+            loss_mb = unreduced_loss
+            torch.distributed.all_reduce(loss_mb, group=parallel_state.get_context_parallel_group())
 
         # 验证阶段，处理 val_drop_last
         if self.validation_step and not self.val_drop_last:

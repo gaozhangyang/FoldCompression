@@ -146,15 +146,15 @@
       "console": "integratedTerminal",
       "args": [
         "--config_name", "baseline",
-        // "--cluster-path", "/nfs_beijing_os/linlinchao/afdb/rep_mem_v2/afdb_rep_mem-cluster.msgpack",
+        "--cluster-path", "/nfs_beijing_os/linlinchao/afdb/rep_mem_v2/afdb_rep_mem-cluster.msgpack",
         // "--database-path", "/nfs_beijing_os/linlinchao/afdb/rep_mem_v2/afdb_rep_mem.db",
-        "--cluster-path", "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/data/train_keys_subset.msgpack",
-        "--database-path", "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/data/afdb_rep_mem_debug.db",
+        // "--cluster-path", "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/data/train_keys_subset.msgpack",
+        "--database-path", "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/results/struct_compress/baseline_prefix32_len512_dec1_1M_bs32_run3_infer/compression_data.lmdb",
         "--precision=fp16",
         "--num-gpus", "1",
         "--num-nodes", "1",
-        "--num-steps", "50000",
-        "--result-dir", "./results/struct_compress/",
+        "--num-steps", "5000000000",
+        "--result-dir", "./results/struct_compress_FM/",
         "--max-seq-length", "512",
         "--resume-if-exists",
         "--limit-val-batches", "4",
@@ -166,7 +166,7 @@
         "--tensor-model-parallel-size", "1",
         "--create-tensorboard-logger",
         "--lr", "1e-4",
-        "--experiment-name", "debug",
+        "--experiment-name", "latentFM_30M",
         // "--data-splits", "90, 5, 5" 
         "--data-splits", "9990, 5, 5",
         "--prefix_len", "32",
@@ -176,9 +176,19 @@
       ],
       "env": {
         "PYTHONPATH": "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/",
-        "CUDA_VISIBLE_DEVICES": "1"
+        // "CUDA_VISIBLE_DEVICES": "1"
       }
     },
-
+    {
+      "name": "Python: current",
+      "type": "python",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "env": {
+        "CUDA_LAUNCH_BLOCKING": "1"
+      },
+      "justMyCode": false
+    }
   ]
 }

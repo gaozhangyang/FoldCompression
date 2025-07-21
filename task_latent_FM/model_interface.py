@@ -201,3 +201,27 @@ class BionemoLightningModule(
         xt = (1 - t) * x0 + t * z
         v = z - x0
         return xt, t, v
+    
+    def init_process_group_if_needed(self, backend="gloo"):
+        import torch.distributed as dist
+        import os
+        os.environ['MASTER_ADDR'] = 'localhost'
+        os.environ['MASTER_PORT'] = '12355'
+        os.environ['RANK'] = '0'
+        os.environ['WORLD_SIZE'] = '1'
+
+
+        if not dist.is_initialized():
+            # 单进程用 gloo 足够
+            dist.init_process_group(backend=backend, init_method="env://", world_size=1, rank=0)
+
+    def extract_plain_state(self, ckpt_dir: str, output_path: str):
+        from megatron.core.dist_checkpointing import load_plain_tensors
+        # ⚠️ 一定要先初始化分布式 group
+        self.init_process_group_if_needed(backend="gloo")
+        # 加载 shard checkpoint 自动合并
+        state_dict = load_plain_tensors(ckpt_dir)
+        torch.save(state_dict, output_path)
+        print(f"✔️ Saved merged checkpoint at: {output_path}")
+        return state_dict
+    

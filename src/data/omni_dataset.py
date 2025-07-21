@@ -10,7 +10,7 @@ from functools import reduce
 from typing import Any, Callable, Optional
 import numpy as np
 import torch
-
+from tqdm import tqdm
 
 
 class LMDBDataset(torch.utils.data.Dataset):
@@ -46,9 +46,11 @@ class LMDBDataset(torch.utils.data.Dataset):
         # with self.env.begin() as txn:
         #     stat = txn.stat()
         
+        keys = []
         with self.env.begin() as txn:
             with txn.cursor() as cursor:
-                keys = list(cursor.iternext(keys=True, values=False))
+                for one in tqdm(cursor.iternext(keys=True, values=False)):
+                    keys.append(one)
 
         self.keys = keys
         self.total_samples = len(keys)
@@ -86,16 +88,98 @@ class LMDBDataset(torch.utils.data.Dataset):
         #     counter += int(sample_length)
         #     sample_ids.append(sample_id)
         
+        try:
+            if isinstance(idx, int):
+                sample_ids = [self.keys[idx].decode()]
+            elif isinstance(idx[0], int):
+                sample_ids = [self.keys[i].decode() for i in idx]
+            values = self.__getitem_based_on_keys__(sample_ids)
+            
+            return self.data_process_fn(values)
+        except:
+            return None
+    
+
+class LMDBDataset_flatten(torch.utils.data.Dataset):
+    coords_eos_array = torch.full(
+        (1, 37, 3), torch.inf
+    )
+    coords_mask_eos_array = torch.full(
+        (1, 37, 3), False
+    )
+
+    def __init__(
+        self, 
+        env, 
+        process_fn: Optional[Callable] = None,
+        total_samples=None,
+        seq_len: int = 2048,
+        seed: int = 42,
+        task_type: str = "mlm",
+        data_process_fn = None,
+        **kwargs
+    ):
+        self.env = env
+        self.process_fn = process_fn
+        self.seq_len = seq_len
+        self.desc = "LMDBDataset"
+        self.rng = random.Random(seed)
+        self.task_type = task_type
+        self.data_process_fn = data_process_fn
+
+        if not self.env:
+            raise IOError(f"Cannot open lmdb dataset")
+        with self.env.begin() as txn:
+            stat = txn.stat()
+        
+        all_num = 0
+        keys = []
+        with self.env.begin() as txn:
+            with txn.cursor() as cursor:
+                for one in tqdm(cursor.iternext(keys=True, values=False)):
+                    keys.append(one)
+                    all_num += 1
+                    if all_num >= total_samples:
+                        break
+
+        self.keys = keys
+        if total_samples is not None:
+            self.total_samples = total_samples
+        else:
+            self.total_samples = len(keys)
+
+    def __getitem_based_on_keys__(self, keys):
+        unpacked_values = []
+        if not isinstance(keys, list):
+            keys = [keys]
+        with self.env.begin() as txn:
+            for key in keys:
+                packed_value = txn.get(str(key).encode('utf-8'))
+                if packed_value:
+                    unpacked_value = msgpack.unpackb(packed_value, raw=False, object_hook=mn.decode)
+                    unpacked_value = {'name': key, 'value': unpacked_value}
+                    unpacked_values.append(unpacked_value)
+        return unpacked_values
+
+    def __len__(self):
+        # return self.total_samples
+        return int(1e10)
+    
+
+    def __getitem__(
+        self, 
+        idx
+    ):
+        idx = idx%self.total_samples
+        
         if isinstance(idx, int):
             sample_ids = [self.keys[idx].decode()]
         elif isinstance(idx[0], int):
             sample_ids = [self.keys[i].decode() for i in idx]
         values = self.__getitem_based_on_keys__(sample_ids)
         
-        return self.data_process_fn(values)
+        return values[0]
     
-
-
 
 def split_ds(
         cluster_msg_file: str,

@@ -150,7 +150,7 @@ class FoldCompressionFMModel(LanguageModule):
             predX = self.sampling(position, seq_ids, V, blocks, attn_mask, 100)
             return predX
     
-    def sampling(self, position, seq_ids, V, blocks, attn_mask, n_steps=100):
+    def sampling(self, position, seq_ids, V, blocks, attn_mask, n_steps=1000):
         """
         使用欧拉方法从 t=1 到 t=0 生成样本。
         model: 训练好的 FlowMatchNet
@@ -175,13 +175,83 @@ class FoldCompressionFMModel(LanguageModule):
 
         for t in t_seq[:-1]:
             h_V_enc[:, prefix_num:]=self.time_embed(t[None, None, None])+self.xt_proj(xt.reshape(B,L,-1)[:,prefix_num:])
+            
             h_V = self.enc_proj(h_V_enc)
             h_V = self.struct_decoder(position, h_V, attn_mask=attn_mask)
             v = self.pred_head_struct(h_V)
             v = v.reshape(B,L,-1,3)
             xt = xt + v * (-dt)  # 反向积分：x_{t - dt} = x_t + v * (-dt)
         return xt
+
+
+class LatentFMModel(LanguageModule):
+    pre_process: bool = True
+    post_process: bool = True
+    share_embeddings_and_output_weights: bool = True
+    def __init__(self, config: TransformerConfig, 
+                 enc_layers, 
+                 dec_layers, 
+                 hidden_dim):
+        """ Graph labeling network """
+        super(LatentFMModel, self).__init__(config)
+        self.config: TransformerConfig = config
+        self.model_type = ModelType.encoder_or_decoder
+        self.xt_embed = nn.Linear(128, 1280)
+        self.time_embed = nn.Linear(1, 1280)
+        self.struct_decoder = TransformerStack(
+            1280, 20, 1, dec_layers, scale_residue=False, n_layers_geom=0, is_geo_attn=False, geo_attn_dim=25
+        )
+        self.pred_head_struct = nn.Linear(1280, 128)
         
+        
+        
+    def set_input_tensor(self, input_tensor: Tensor):
+        """Set input tensor to be used instead of forward()'s input.
+
+        When doing pipeline parallelism the input from the previous
+        stage comes from communication, not from the input, so the
+        model's forward_step_func won't have it. This function is thus
+        used by internal code to bypass the input provided by the
+        forward_step_func"""
+        self.input_tensor = input_tensor
+        
+                                                      
+    def forward(self, xt, t, mode='train'):
+        position = torch.arange(xt.shape[1], device=xt.device, dtype=xt.dtype).reshape(1, -1).repeat(xt.shape[0], 1).long()
+        attn_mask = position>-1
+        attn_mask = attn_mask[:, None, :] & attn_mask[:, :, None]
+        if mode == 'train':
+            h_V = self.xt_embed(xt) + self.time_embed(t)
+            h_V = self.struct_decoder(position, h_V, attn_mask=attn_mask)
+            predV = self.pred_head_struct(h_V)
+            return predV
+        else:
+            with torch.no_grad():
+                predX = self.sampling(position, xt, attn_mask, 1000)
+            return predX
+    
+    def sampling(self, position, xt, attn_mask, n_steps=1000):
+        """
+        使用欧拉方法从 t=1 到 t=0 生成样本。
+        model: 训练好的 FlowMatchNet
+        num_samples: 要生成的样本数量
+        n_steps: 时间离散步数
+        返回重构后的 x0: [num_samples, dim]
+        """
+        device = position.device
+        dtype = xt.dtype
+        # 初始噪声 z ~ N(0, I)
+        xt = torch.rand_like(xt)
+        # 时间步序列，从 1.0 到 0.0
+        t_seq = torch.linspace(1.0, 0.0, n_steps, device=device, dtype=dtype)
+        dt = t_seq[0] - t_seq[1]
+
+        for t in t_seq[:-1]:
+            h_V = self.xt_embed(xt) + self.time_embed(t[None,None,None])
+            h_V = self.struct_decoder(position, h_V, attn_mask=attn_mask)
+            v = self.pred_head_struct(h_V)
+            xt = xt + v * (-dt)  # 反向积分：x_{t - dt} = x_t + v * (-dt)
+        return xt
 
 FoldCompModelT = TypeVar("FoldCompModelT", bound=FoldCompressionModel)
 
@@ -191,7 +261,7 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 from src.model.foldtoken_module import StructureDecoder, StructureSimEncoder2
 
 
-from task.loss import CustomLossWithReduction
+from task_flowmatch.loss import CustomLossWithReduction
 
 @dataclass
 class FoldCompressionConfig(TransformerConfig, iom.IOMixinWithGettersSetters
