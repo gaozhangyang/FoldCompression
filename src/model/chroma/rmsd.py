@@ -31,7 +31,11 @@ def batched_eigh(F: torch.Tensor, chunk_size: int = 10000):
     Ls, Vs = [], []
     for Fc in F.split(chunk_size, dim=0):
         # 如果遇到 GPU 上特定批量失败，可尝试： Fc = Fc.cpu()
-        Lc, Vc = torch.linalg.eigh(Fc)
+        with torch.cuda.amp.autocast(enabled=False):
+            Lc, Vc = torch.linalg.eigh(Fc.float().detach())
+        # 确保 Lc 和 Vc 的 dtype 与 F 相同
+        Lc = Lc.to(F.dtype)
+        Vc = Vc.to(F.dtype)
         Ls.append(Lc)
         Vs.append(Vc)
     return torch.cat(Ls, dim=0), torch.cat(Vs, dim=0)

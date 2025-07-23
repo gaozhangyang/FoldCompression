@@ -116,6 +116,14 @@ class MultiHeadAttention(nn.Module):
             eps = torch.finfo(blocks.dtype).eps
             base_BLK3 = base_BLK3/(torch.norm(base_BLK3, dim=-1)[...,None]+eps)
             ## ============ uni map, decoupled, checked =============
+            # with torch.cuda.amp.autocast(enabled=False):
+            #     length = attention_mask.sum(dim=-1)
+            #     tmp1 = torch.einsum('bhkd, bkcx, bqk->bhqdcx', key_BHLD/length[:,None,:,None], blocks-M, attention_mask.to(blocks.dtype))
+            #     tmp2 = torch.einsum('bhqd, bhqdcx->bhqcx', query_BHLD, tmp1)
+                
+            #     context = torch.einsum('bqex, bhqcx->bhqec', base_BLK3, tmp2).reshape(B,H,L,-1) #/length[:,None,:,None]
+            # context = context.to(context.dtype)
+            
             length = attention_mask.sum(dim=-1)
             tmp1 = torch.einsum('bhkd, bkcx, bqk->bhqdcx', key_BHLD/length[:,None,:,None], blocks-M, attention_mask.to(blocks.dtype))
             tmp2 = torch.einsum('bhqd, bhqdcx->bhqcx', query_BHLD, tmp1)

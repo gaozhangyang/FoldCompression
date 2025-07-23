@@ -275,7 +275,7 @@ def main(
         LearningRateMonitor(),
         nl_callbacks.PreemptionCallback(),
         TimingCallback(),
-        ZeroNanGradients(),
+        # ZeroNanGradients(),
     ]
 
     if nsys_profiling:
@@ -342,6 +342,7 @@ def main(
             autocast_enabled=False,
         ),
         enable_checkpointing=create_checkpoint_callback,
+        # detect_anomaly=True
         # gradient_clip_val=1.0,  # Gradient clipping value
     )
 

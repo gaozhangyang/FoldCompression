@@ -31,7 +31,7 @@
         "--create-tensorboard-logger",
         "--lr", "0.00",
         "--infer_feats", "0",
-        "--experiment-name", "baseline_prefix32_len512_dec1_1M_bs32_run3_infer_wh",
+        "--experiment-name", "debug",
         // "--data-splits", "90, 5, 5" 
         "--data-splits", "9990, 5, 5",
         "--prefix_len", "32",

@@ -36,24 +36,24 @@ def compute_custom_loss(
     # 示例：简单的交叉熵
     # loss_fn = torch.nn.CrossEntropyLoss(reduction='none')
     # return loss_fn(logits, labels)
-    pred_X, chain, X_true, loss_mask, prefix_len = output['predX'], batch['data_id'], batch['coords'][:,:,:5], batch['loss_mask'], batch['prefix_len']
+    pred_X, chain, X_true, prefix_len = output['predX'], batch['data_id'], batch['coords'][:,:,:5],  batch['prefix_len']
+    pred_X0 = output.get('predX0', None)
     
     struct_loss = ReconstructionLosses(
             rmsd_method='symeig', loss_scale=10.0
         )
     
-    # _, pred_X_batch, _ = transform_cbach_to_sbatch(chain, pred_X)
-    # _, loss_mask_batch, _ = transform_cbach_to_sbatch(chain, loss_mask[...,None,None])
-    # C_batch, X_true_batch, _ = transform_cbach_to_sbatch(chain, X_true)
-    # _, seq_ids_batch, _ = transform_cbach_to_sbatch(chain, batch['seq_ids'][...,None])
-    # seq_ids_batch = seq_ids_batch[...,0]
-    
-    # prefix_num = (batch['seq_ids']==34).sum(dim=-1)[0]
-    pred_X_batch = pred_X
     C_batch = chain
     X_true_batch = X_true
     
+    out = compute_loss(X_true_batch, pred_X, struct_loss, C_batch, prefix_len)
+    # out0 = compute_loss(X_true_batch, pred_X0, struct_loss, C_batch, 0)
     
+    loss = out['loss'] #+ out0['loss']
+    return loss, out  # 返回未缩减的损失张量
+        
+
+def compute_loss(X_true_batch, pred_X_batch, struct_loss, C_batch, prefix_len):
     B,L = C_batch.shape
     X_true_batch = X_true_batch.reshape(B,L,-1,3)
     pred_X_batch = pred_X_batch.reshape(B,L,-1,3)
@@ -63,23 +63,17 @@ def compute_custom_loss(
     X_true_batch[mask_batch]=0
 
     results = struct_loss(pred_X_batch[:,prefix_len:], X_true_batch[:,prefix_len:], C_batch[:,prefix_len:])
-    
-    # B,L,d = S_pred.shape
-    # seq_loss = F.cross_entropy(S_pred.reshape(B*L,d),S_true.reshape(B*L),reduction='none').reshape(B,L)
-    # seq_loss = (seq_loss*loss_mask).sum()/loss_mask.sum()
                 
     
     out = {}
     loss = 0
-    for key in ['batch_global_mse', 'batch_fragment_mse', 'batch_pair_mse', 'batch_neighborhood_mse', 'batch_distance_mse', 'batch_hb_local', 'batch_hb_nonlocal', 'batch_hb_contact_order']:
+    for key in ['batch_global_mse', 'batch_fragment_mse', 'batch_pair_mse', 'batch_neighborhood_mse', 'batch_distance_mse']:
         if results.get(key):
             loss += results[key]
             out.update({key: results[key]})
-    out.update({'loss': loss})
-    return out['loss'], out  # 返回未缩减的损失张量
-        
-
-
+    out['loss'] = loss
+    return out
+    
 class CustomLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossReduction):  # noqa: D101
     def __init__(
         self,
@@ -119,8 +113,8 @@ class CustomLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossReduc
                 - extras (Dict): 额外信息，如平均损失等
         """
 
-        if len(forward_out.shape) ==0:
-            return forward_out, { 'avg': forward_out[None] }
+        # if len(forward_out.shape) ==0:
+        #     return forward_out, { 'avg': forward_out[None] }
         
         # ======== 用户损失计算入口，不要修改以下调用 ========
         unreduced_loss, _ = compute_custom_loss(

@@ -5,7 +5,7 @@ from typing import Iterator, Optional, Dict
 import torch
 from bionemo.llm.api import MegatronModelType, MegatronLossType
 from src.interface.model_interface_base import ModelInterfaceBase
-from src.model.foldtoken_model_simplify import FoldCompressionConfig, FoldCompressionFMModel,LatentFMModel
+from src.model.foldtoken_model_simplify import FoldFMConfig, FoldCompressionFMModel,LatentFMModel
 from bionemo.llm.model.biobert.lightning import get_batch_on_this_context_parallel_rank
 from typing import Iterator, Optional, Dict, Any
 from .loss import compute_custom_loss
@@ -48,7 +48,7 @@ class BionemoLightningModule(
         
         
     def set_config(self):
-        self.config = FoldCompressionConfig(
+        self.config = FoldFMConfig(
             enc_layers=self.hparams.enc_layers,
             dec_layers=self.hparams.dec_layers,
             hidden_dim=self.hparams.hidden_dim,

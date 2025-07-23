@@ -89,6 +89,7 @@ class ESMDataModule(DataInterfaceBase):
         
 
     def train_dataloader(self):
+
         return self.build_pretraining_data_loader(self.train_cluster, mode='train')
 
     def val_dataloader(self):
@@ -106,8 +107,8 @@ class ESMDataModule(DataInterfaceBase):
         #         seed=self.hparams.seed,
         #         mode=mode
         #     )
-        
-        
+        self.update_init_global_step()
+
         if mode == 'train':
             # total_samples = 30000000
             total_samples = 100000

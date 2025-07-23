@@ -5,10 +5,10 @@ from typing import Iterator, Optional, Dict
 import torch
 from bionemo.llm.api import MegatronModelType, MegatronLossType
 from src.interface.model_interface_base import ModelInterfaceBase
-from src.model.foldtoken_model_simplify import FoldCompressionConfig, FoldCompressionModel
+from src.model.foldtoken_model_simplify import FoldCompressionConfig, FoldCompressionModel, IterFoldCompressionModel
 from bionemo.llm.model.biobert.lightning import get_batch_on_this_context_parallel_rank
 from typing import Iterator, Optional, Dict, Any
-from .loss import compute_custom_loss
+from task.loss import compute_custom_loss
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from megatron.core.optimizer import OptimizerConfig
 from bionemo.llm.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
@@ -62,7 +62,13 @@ class BionemoLightningModule(
 
     def configure_model(self) -> None:
         """Instantiate the FoldCompressionModel and assign to self.module"""
-        self.module = FoldCompressionModel(
+        # self.module = FoldCompressionModel(
+        #     self.config,
+        #     self.hparams.enc_layers,
+        #     self.hparams.dec_layers,
+        #     self.hparams.hidden_dim,
+        # )
+        self.module = IterFoldCompressionModel(
             self.config,
             self.hparams.enc_layers,
             self.hparams.dec_layers,
@@ -113,7 +119,7 @@ class BionemoLightningModule(
         all_steps = 20000
         temperature = torch.clamp(torch.tensor(1-self.global_step/all_steps), 0, 1.0).to(batch['position'].device)
         
-        predX, h_V = self.module(
+        predX = self.module(
             batch['position'],
             batch['seq_ids'],
             V,
@@ -121,29 +127,31 @@ class BionemoLightningModule(
             attn_mask,
             temperature
         )
-        return {'predX': predX, 'mask': attn_mask, 'h_V':h_V}
+        return {'predX': predX, 'mask': attn_mask}
 
     def training_step(self, batch: Dict, batch_idx: Optional[int] = None) -> Dict:
         """Training step: set prefix length and run forward_step."""
         batch['prefix_len'] = self.hparams.prefix_len
         outputs = self.forward_step(batch)
+        
+        
         loss, results = compute_custom_loss(outputs, batch)
         
         # idx = 2
-        for idx in range(8):
-            true_X = batch['coords'][:,:,:5]
-            mask0 = true_X.sum(dim=(-2,-1))!=0
-            mask = (batch['data_id']>0)&mask0
-            pred_X = outputs['predX']
-            X = pred_X[idx][mask[idx]][None][:,:,[0,1,2,4]]
-            C = torch.ones_like(X)[:,:,0,0].long()
-            protein_pred = Protein.from_XCS(X, C, C)
+        # for idx in range(8):
+        #     true_X = batch['coords'][:,:,:5]
+        #     mask0 = true_X.sum(dim=(-2,-1))!=0
+        #     mask = (batch['data_id']>0)&mask0
+        #     pred_X = outputs['predX']
+        #     X = pred_X[idx][mask[idx]][None][:,:,[0,1,2,4]]
+        #     C = torch.ones_like(X)[:,:,0,0].long()
+        #     protein_pred = Protein.from_XCS(X, C, C)
             
-            X = true_X[idx][mask[idx]][None][:,:,[0,1,2,4]]
-            protein_true = Protein.from_XCS(X, C, C)
+        #     X = true_X[idx][mask[idx]][None][:,:,[0,1,2,4]]
+        #     protein_true = Protein.from_XCS(X, C, C)
             
-            protein_pred.to(f'/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/sample{idx}_pred.pdb')
-            protein_true.to(f'/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/sample{idx}_true.pdb')
+        #     protein_pred.to(f'/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/sample{idx}_pred.pdb')
+        #     protein_true.to(f'/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/sample{idx}_true.pdb')
         
         if self.is_on_logging_device():
             self.log("train_loss", results['loss'], on_step=True, on_epoch=True, prog_bar=True)
