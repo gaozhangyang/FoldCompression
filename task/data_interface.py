@@ -115,7 +115,7 @@ class ESMDataModule(DataInterfaceBase):
         #         mode=mode
         #     )
         
-        
+        # self.update_init_global_step()
         
         dataset = LMDBDataset(self.env, 
                               self.train_cluster, seq_len=self.hparams.max_seq_length, 

@@ -27,5 +27,7 @@
         120
     ],
     "autoDocstring.docstringFormat": "google-notypes",
-    "python.languageServer": "Pylance"
+    "python.languageServer": "Pylance",
+    "python-envs.defaultEnvManager": "ms-python.python:system",
+    "python-envs.pythonProjects": []
 }

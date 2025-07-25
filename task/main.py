@@ -34,6 +34,8 @@ from task.model_interface import BionemoLightningModule
 from src.utils.utils import process_args
 import torch
 from lightning.pytorch.callbacks import Callback
+from src.utils.callbacks import MyModelCheckpoint
+# from nemo_automodel.components.checkpoint.checkpointing import CheckpointingConfig
 import os
 os.environ["WANDB_API_KEY"] = "ddb1831ecbd2bf95c3323502ae17df6e1df44ec0"
 
@@ -298,19 +300,37 @@ def main(
     # Configure our custom ModelCheckpointe callback and AutoResume to save at nemo_logger.save_dir/checkpoints
     if create_checkpoint_callback:
         checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
-        checkpoint_callback = nl_callbacks.ModelCheckpoint(
-            dirpath=checkpoint_path,
-            save_last=save_last_checkpoint,
-            monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
-            save_top_k=save_top_k,
-            every_n_train_steps=val_check_interval,
-            always_save_context=True,
-            # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
-            filename="{epoch}-{step}-{consumed_samples}",
-            # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
-            # Save both the weights and the optimizer state.
-            save_weights_only=False,
-            save_optim_on_train_end=True,
+        # checkpoint_callback = nl_callbacks.ModelCheckpoint(
+        #     dirpath=checkpoint_path,
+        #     save_last=save_last_checkpoint,
+        #     monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
+        #     save_top_k=save_top_k,
+        #     every_n_train_steps=val_check_interval,
+        #     always_save_context=True,
+        #     # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+        #     filename="{epoch}-{step}-{consumed_samples}",
+        #     # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
+        #     # Save both the weights and the optimizer state.
+        #     save_weights_only=False,
+        #     save_optim_on_train_end=True,
+        # )
+        
+        # ckpt_cfg = CheckpointingConfig(
+        #     enabled=True,
+        #     checkpoint_dir=checkpoint_path,
+        #     model_save_format="safetensors",
+        #     save_consolidated=False,
+        #     model_cache_dir="checkpoints/cache/",
+        #     model_repo_id="bionemo/foldcompression",
+        #     is_peft=False
+        # )
+        
+        checkpoint_callback = MyModelCheckpoint(
+            monitor="val_loss",
+            save_top_k=5,
+            save_last=True,
+            mode="min",
+            dirpath=checkpoint_path
         )
 
         callbacks.append(checkpoint_callback)
@@ -341,10 +361,13 @@ def main(
             grad_reduce_in_fp32=grad_reduce_in_fp32,
             autocast_enabled=False,
         ),
-        enable_checkpointing=create_checkpoint_callback,
+        enable_checkpointing=create_checkpoint_callback
         # detect_anomaly=True
         # gradient_clip_val=1.0,  # Gradient clipping value
     )
+    
+    trainer.custom_ckpt_path = '/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/results/struct_compress/debug/checkpoints/debug--val_loss=1521.3534-epoch=0-consumed_samples=1280.0.ckpt'
+    # trainer.custom_ckpt_path = None
 
     # trainer.strategy.load_checkpoint('/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/results/struct_compress/baseline_prefix32_len512_dec1/checkpoints/epoch=0-step=99999-consumed_samples=800000.0-last')
     
@@ -362,7 +385,7 @@ def main(
             data=data_module,
             trainer=trainer,
             log=nemo_logger,
-            resume=auto_resume,
+            # resume=auto_resume,
         )
     return trainer
 

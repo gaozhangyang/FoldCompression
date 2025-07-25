@@ -160,6 +160,7 @@ class BionemoLightningModule(
         return outputs
 
     def validation_step(self, batch: Dict, batch_idx: Optional[int] = None) -> Dict:
+        torch.cuda.empty_cache()
         """Validation step: set prefix length, eval mode, and run forward_step without gradient."""
         if self.hparams.infer_feats:
             batch['prefix_len'] = self.hparams.prefix_len
@@ -201,7 +202,8 @@ class BionemoLightningModule(
                 weight_decay=0.01,
                 adam_beta1=0.9,
                 adam_beta2=0.98,
-                clip_grad=1.0
+                clip_grad=1.0,
+                adam_eps=1e-4
             ),
             lr_scheduler=WarmupAnnealDecayHoldScheduler(
                 warmup_steps=self.hparams.warmup_steps,
@@ -234,7 +236,39 @@ class BionemoLightningModule(
         self.load_state_dict(ckpt, strict=False)
         print(f"✅ 模型加载成功：{ckpt_path}")
     
+    def on_before_optimizer_step(self, optimizer: torch.optim.Optimizer) -> None:
+        """Hook to clear CUDA cache before each optimizer step."""
+        # replace gradient nan/inf with 0
+        for group in optimizer.param_groups:
+            for param in group['params']:
+                if param.grad is not None:
+                    grad = param.grad
+                    # 将 NaN 和 Inf 替换为 0
+                    grad = torch.where(torch.isnan(grad) | torch.isinf(grad), torch.zeros_like(grad), grad)
+                    param.grad = grad
+    
+    def init_process_group_if_needed(self, backend="gloo"):
+        import torch.distributed as dist
+        import os
+        os.environ['MASTER_ADDR'] = 'localhost'
+        os.environ['MASTER_PORT'] = '12355'
+        os.environ['RANK'] = '0'
+        os.environ['WORLD_SIZE'] = '1'
 
+
+        if not dist.is_initialized():
+            # 单进程用 gloo 足够
+            dist.init_process_group(backend=backend, init_method="env://", world_size=1, rank=0)
+
+    def extract_plain_state(self, ckpt_dir: str, output_path: str):
+        from megatron.core.dist_checkpointing import load_plain_tensors
+        # ⚠️ 一定要先初始化分布式 group
+        self.init_process_group_if_needed(backend="gloo")
+        # 加载 shard checkpoint 自动合并
+        state_dict = load_plain_tensors(ckpt_dir)
+        torch.save(state_dict, output_path)
+        print(f"✔️ Saved merged checkpoint at: {output_path}")
+        return state_dict
 
 import os
 import lmdb

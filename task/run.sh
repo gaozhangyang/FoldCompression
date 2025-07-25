@@ -402,7 +402,7 @@ python ./task/main.py \
     --wandb-offline 0 \
     --lr 1e-5 \
     --prefix_len 32 \
-    --experiment-name DecLayer12_run3 \
+    --experiment-name DecLayer12_svckpt \
     --log-every-n-steps 100 \
     --dec_layers 12 \
     --infer_feats 0 \

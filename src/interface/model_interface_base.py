@@ -9,6 +9,7 @@ from nemo.lightning.megatron_parallel import DataT, MegatronLossReduction, Reduc
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from bionemo.core.model.config import BionemoTrainableModelConfig
 from bionemo.llm.api import MegatronLossType, MegatronModelType
+# from megatron.core.optimizer.distrib_optimizer import DistributedOptimizer
 
 # --- Shared utility functions ---
 
@@ -142,3 +143,4 @@ class ModelInterfaceBase(
 
     def test_loss_reduction(self) -> MegatronLossType:
         return self.loss_reduction_class(validation_step=True)
+
