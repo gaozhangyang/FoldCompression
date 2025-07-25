@@ -34,7 +34,7 @@ from task.model_interface import BionemoLightningModule
 from src.utils.utils import process_args
 import torch
 from lightning.pytorch.callbacks import Callback
-from src.utils.callbacks import MyModelCheckpoint
+# from src.utils.callbacks import MyModelCheckpoint
 # from nemo_automodel.components.checkpoint.checkpointing import CheckpointingConfig
 import os
 os.environ["WANDB_API_KEY"] = "ddb1831ecbd2bf95c3323502ae17df6e1df44ec0"
@@ -300,20 +300,20 @@ def main(
     # Configure our custom ModelCheckpointe callback and AutoResume to save at nemo_logger.save_dir/checkpoints
     if create_checkpoint_callback:
         checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
-        # checkpoint_callback = nl_callbacks.ModelCheckpoint(
-        #     dirpath=checkpoint_path,
-        #     save_last=save_last_checkpoint,
-        #     monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
-        #     save_top_k=save_top_k,
-        #     every_n_train_steps=val_check_interval,
-        #     always_save_context=True,
-        #     # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
-        #     filename="{epoch}-{step}-{consumed_samples}",
-        #     # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
-        #     # Save both the weights and the optimizer state.
-        #     save_weights_only=False,
-        #     save_optim_on_train_end=True,
-        # )
+        checkpoint_callback = nl_callbacks.ModelCheckpoint(
+            dirpath=checkpoint_path,
+            save_last=save_last_checkpoint,
+            monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
+            save_top_k=save_top_k,
+            every_n_train_steps=val_check_interval,
+            always_save_context=True,
+            # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+            filename="{epoch}-{step}-{consumed_samples}",
+            # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
+            # Save both the weights and the optimizer state.
+            save_weights_only=False,
+            save_optim_on_train_end=True,
+        )
         
         # ckpt_cfg = CheckpointingConfig(
         #     enabled=True,
@@ -325,13 +325,13 @@ def main(
         #     is_peft=False
         # )
         
-        checkpoint_callback = MyModelCheckpoint(
-            monitor="val_loss",
-            save_top_k=5,
-            save_last=True,
-            mode="min",
-            dirpath=checkpoint_path
-        )
+        # checkpoint_callback = MyModelCheckpoint(
+        #     monitor="val_loss",
+        #     save_top_k=5,
+        #     save_last=True,
+        #     mode="min",
+        #     dirpath=checkpoint_path
+        # )
 
         callbacks.append(checkpoint_callback)
 
@@ -385,7 +385,7 @@ def main(
             data=data_module,
             trainer=trainer,
             log=nemo_logger,
-            # resume=auto_resume,
+            resume=auto_resume,
         )
     return trainer
 
