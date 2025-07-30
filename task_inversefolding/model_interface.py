@@ -5,14 +5,13 @@ from typing import Iterator, Optional, Dict
 import torch
 from bionemo.llm.api import MegatronModelType, MegatronLossType
 from src.interface.model_interface_base import ModelInterfaceBase
-from src.model.foldtoken_model_simplify import FoldCompressionConfig, FoldCompressionModel, IterFoldCompressionModel
+from src.model.foldtoken_model_simplify import InverseFoldingModelConfig, InverseFoldingModel
 from bionemo.llm.model.biobert.lightning import get_batch_on_this_context_parallel_rank
 from typing import Iterator, Optional, Dict, Any
-from task.loss import compute_custom_loss
+from task_inversefolding.loss import compute_custom_loss
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from megatron.core.optimizer import OptimizerConfig
 from bionemo.llm.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
-from src.data.protein import Protein
 from torch.cuda import empty_cache
 
 class BionemoLightningModule(
@@ -49,7 +48,7 @@ class BionemoLightningModule(
         
         
     def set_config(self):
-        self.config = FoldCompressionConfig(
+        self.config = InverseFoldingModelConfig(
             enc_layers=self.hparams.enc_layers,
             dec_layers=self.hparams.dec_layers,
             hidden_dim=self.hparams.hidden_dim,
@@ -62,13 +61,7 @@ class BionemoLightningModule(
 
     def configure_model(self) -> None:
         """Instantiate the FoldCompressionModel and assign to self.module"""
-        # self.module = FoldCompressionModel(
-        #     self.config,
-        #     self.hparams.enc_layers,
-        #     self.hparams.dec_layers,
-        #     self.hparams.hidden_dim,
-        # )
-        self.module = IterFoldCompressionModel(
+        self.module = InverseFoldingModel(
             self.config,
             self.hparams.enc_layers,
             self.hparams.dec_layers,
@@ -109,25 +102,26 @@ class BionemoLightningModule(
 
         B, L = batch['blocks'].shape[:2]
         blocks = batch['blocks']
-        M = blocks.mean(dim=-2, keepdims=True)
+        atom_mask = batch['atom_mask']
+        M = (blocks*atom_mask).sum(dim=-2, keepdim=True)/atom_mask.sum(dim=-2, keepdim=True)
         base = blocks - M
         eps = torch.finfo(base.dtype).eps
         base = base / (torch.norm(base, dim=-1, keepdim=True) + eps)
+        base = base*atom_mask
         V = torch.einsum('bqex,bqcx->bqec', base, blocks).reshape(B, L, -1)
 
         # all_steps = len(self.trainer.datamodule.train_dataloader())
-        all_steps = 20000
-        temperature = torch.clamp(torch.tensor(1-self.global_step/all_steps), 0, 1.0).to(batch['position'].device)
+        # all_steps = 20000∂
         
-        predX = self.module(
+        predS = self.module(
             batch['position'],
             batch['seq_ids'],
             V,
             batch['blocks'],
             attn_mask,
-            temperature
+            atom_mask
         )
-        return {'predX': predX, 'mask': attn_mask}
+        return {'predS': predS, 'mask': attn_mask}
 
     def training_step(self, batch: Dict, batch_idx: Optional[int] = None) -> Dict:
         """Training step: set prefix length and run forward_step."""
@@ -135,31 +129,15 @@ class BionemoLightningModule(
         
         # R = random_rotation_matrix()[0]
         # batch['coords'] = torch.einsum('blki, ij->blkj', batch['coords'], R.cuda())
-        # # batch['blocks'] = torch.einsum('blki, ij->blkj', batch['blocks'], R.cuda())
+        # batch['blocks'] = torch.einsum('blki, ij->blkj', batch['blocks'], R.cuda())
         # outputs2 = self.forward_step(batch)
         # loss2, results2 = compute_custom_loss(outputs2, batch)
         
-         
         outputs = self.forward_step(batch)
         
         
         loss, results = compute_custom_loss(outputs, batch)
         
-        # # idx = 2
-        # for idx in range(32):
-        #     true_X = batch['coords'][:,:,:5]
-        #     mask0 = true_X.sum(dim=(-2,-1))!=0
-        #     mask = (batch['data_id']>0)&mask0
-        #     pred_X = outputs['predX']
-        #     X = pred_X[idx][mask[idx]][None][:,:,[0,1,2,4]]
-        #     C = torch.ones_like(X)[:,:,0,0].long()
-        #     protein_pred = Protein.from_XCS(X, C, C)
-            
-        #     X = true_X[idx][mask[idx]][None][:,:,[0,1,2,4]]
-        #     protein_true = Protein.from_XCS(X, C, C)
-            
-        #     protein_pred.to(f'/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/sample{idx}_pred.pdb')
-        #     protein_true.to(f'/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/sample{idx}_true.pdb')
         
         if self.is_on_logging_device():
             # self.log("train_loss", results['loss'].detach().item(), on_step=True, on_epoch=False, prog_bar=True)
@@ -170,30 +148,19 @@ class BionemoLightningModule(
     def validation_step(self, batch: Dict, batch_idx: Optional[int] = None) -> Dict:
         # torch.cuda.empty_cache()
         """Validation step: set prefix length, eval mode, and run forward_step without gradient."""
-        if self.hparams.infer_feats:
-            batch['prefix_len'] = self.hparams.prefix_len
-            with torch.no_grad():
-                self.module.eval()
-                outputs = self.forward_step(batch, infer_feats=True)
-                h_V = outputs['h_V'][:,:self.hparams.prefix_len]
-                names = batch['names'][0]
-                save_vectors_to_lmdb({name: h_V[i, :] for i, name in enumerate(names)}, f"/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/results/struct_compress/baseline_prefix32_len512_dec1_1M_bs32_run3_infer/compression_data.lmdb")
-                empty_cache()
-            # return outputs
-            return h_V.mean()
-        else:
-            batch['prefix_len'] = self.hparams.prefix_len
-            with torch.no_grad():
-                self.module.eval()
-                outputs = self.forward_step(batch)
-                if self.is_on_logging_device():
-                    loss, results = compute_custom_loss(outputs, batch)
-                    for key, val in results.items():
-                        if key != 'loss':
-                            self.log("val_"+key, val, on_step=True, on_epoch=False, prog_bar=True)
-                # self.log_dict({f'val_loss': results['loss']})
-                return outputs
-    
+
+        batch['prefix_len'] = self.hparams.prefix_len
+        with torch.no_grad():
+            self.module.eval()
+            outputs = self.forward_step(batch)
+            if self.is_on_logging_device():
+                loss, results = compute_custom_loss(outputs, batch)
+                for key, val in results.items():
+                    if key != 'loss':
+                        self.log("val_"+key, val, on_step=True, on_epoch=False, prog_bar=True)
+            # self.log_dict({f'val_loss': results['loss']})
+            return outputs
+
 
     def predict_step(self, batch: Dict, batch_idx: Optional[int] = None) -> Optional[Dict]:
         """Predict step alias to forward_step for inference."""
@@ -218,7 +185,7 @@ class BionemoLightningModule(
                 max_steps=self.hparams.scheduler_num_steps,
                 max_lr=self.hparams.lr,
                 min_lr=0.0,
-                anneal_percentage=0.10,
+                anneal_percentage=0.01,
             ),
         )
         return optimizer
@@ -354,7 +321,6 @@ def random_rotation_matrix(batch_size: int = 1, device=None, dtype=torch.float32
     ), dim=-1).reshape(batch_size, 3, 3)
 
     return R
-
 
 # 示例用法
 if __name__ == "__main__":

@@ -392,7 +392,7 @@ python ./task/main.py \
     --max-seq-length 512 \
     --resume-if-exists \
     --limit-val-batches 10 \
-    --micro-batch-size 32 \
+    --micro-batch-size 16 \
     --num-layers 12 \
     --hidden-size 480 \
     --num-attention-head 20 \
@@ -402,7 +402,7 @@ python ./task/main.py \
     --wandb-offline 0 \
     --lr 1e-5 \
     --prefix_len 32 \
-    --experiment-name DecLayer12_svckpt \
+    --experiment-name DecLayer12_new_megatron_partial_mask \
     --log-every-n-steps 100 \
     --dec_layers 12 \
     --infer_feats 0 \

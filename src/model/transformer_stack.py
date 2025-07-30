@@ -69,7 +69,8 @@ class TransformerStack(nn.Module):
         x: torch.Tensor,
         attn_mask: Union[torch.Tensor , None] = None,
         kv_mat=None,
-        blocks=None
+        blocks=None,
+        atom_mask=None
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass of the TransformerStack.
@@ -90,7 +91,7 @@ class TransformerStack(nn.Module):
         # x, blocks = self.blocks[0](position, x, attn_mask, kv_mat, blocks)
         
         for idx, block in enumerate(self.blocks):
-            x, _ = block(position, x, attn_mask, blocks=blocks)
+            x, _ = block(position, x, attn_mask, blocks=blocks, atom_mask=atom_mask)
 
         
         return self.norm(x)

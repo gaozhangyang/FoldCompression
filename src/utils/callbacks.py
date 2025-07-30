@@ -21,6 +21,9 @@ class MyModelCheckpoint(BaseCKPT):
         # self.ckpt_cfg = ckpt_cfg
 
     def _save_checkpoint(self, trainer, filepath: str) -> None:
+        optim = trainer.optimizers[0].mcore_optimizer.chained_optimizers[0]
+        optim_param_state = optim.get_parameter_state_dp_zero()
+        torch.distributed.barrier()
         if is_global_rank_zero():
 
             model = trainer.lightning_module
@@ -29,9 +32,13 @@ class MyModelCheckpoint(BaseCKPT):
             # save_model(, filepath, self.ckpt_cfg)
 
             # 保存 optimizer/scheduler 状态
-            optim = trainer.optimizers[0]
+            
+            
+            # optim.mcore_optimizer.get_parameter_state_dp_zero()
+            # optim.mcore_optimizer.chained_optimizers[0].get_parameter_state_dp_zero()
+            
 
-            optim_state = {'optim_param_state':optim.mcore_optimizer.get_parameter_state_dp_zero(), 
+            optim_state = {'optim_param_state':optim_param_state, 
                         'optim_state': optim.state_dict(),
                         'global_step': trainer.global_step,
                         'epoch': trainer.current_epoch,
@@ -76,17 +83,25 @@ class MyModelCheckpoint(BaseCKPT):
             # optim.state[optim.param_groups[0]['params'][2]]['exp_avg'].max()
 
     def on_fit_start(self, trainer, pl_module):
+        ckpt_path = trainer.custom_ckpt_path
+        if (ckpt_path is not None) and os.path.exists(ckpt_path):
+            data = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+            optim = trainer.optimizers[0].mcore_optimizer.chained_optimizers[0]
+            optim.load_parameter_state_from_dp_zero(data['optim_param_state'])
+            torch.distributed.barrier()
+            
         if trainer.custom_ckpt_path:
-            ckpt_path = trainer.custom_ckpt_path
+            
             if is_global_rank_zero() and os.path.exists(ckpt_path):
                 # restore model state
-                data = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+                
                 unwrap_model(pl_module).load_state_dict(data['state_dict'])
                 
 
                 # restore optimizer state
-                optim = trainer.optimizers[0]
-                optim.mcore_optimizer.load_parameter_state_from_dp_zero(data['optim_param_state'])
+                # optim = trainer.optimizers[0]
+                
+                
                 optim.load_state_dict(data['optim_state'])
                 
                 # restore callbacks state

@@ -104,7 +104,8 @@ class UnifiedTransformerBlock(nn.Module):
         x: torch.Tensor,
         attention_mask: torch.Tensor,
         kv_mat = None,
-        blocks = None
+        blocks = None,
+        atom_mask = None
     ) -> torch.Tensor:
         """
         Forward pass for the UnifiedTransformerBlock.
@@ -128,7 +129,7 @@ class UnifiedTransformerBlock(nn.Module):
             The output tensor after applying the transformer block operations.
         """
 
-        r1, blocks = self.attn(position, x, attention_mask=attention_mask,  blocks=blocks)
+        r1, blocks = self.attn(position, x, attention_mask=attention_mask,  blocks=blocks, atom_mask=atom_mask)
         x = x + r1 / self.scaling_factor
 
 

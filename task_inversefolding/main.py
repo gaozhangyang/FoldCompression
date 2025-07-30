@@ -22,20 +22,17 @@ from nemo import lightning as nl
 from nemo.collections import llm
 from nemo.lightning import resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
-from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.utils.exp_manager import TimingCallback
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
-from task.data_interface import ESMDataModule
+from task_inversefolding.data_interface import ESMDataModule
 from bionemo.esm2.data.dataset import RandomMaskStrategy
 from bionemo.llm.model.biobert.model import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
-from task.model_interface import BionemoLightningModule
+from task_inversefolding.model_interface import BionemoLightningModule
 from src.utils.utils import process_args
 import torch
 from lightning.pytorch.callbacks import Callback
-from src.utils.callbacks import MyModelCheckpoint
-# from nemo_automodel.components.checkpoint.checkpointing import CheckpointingConfig
 import os
 os.environ["WANDB_API_KEY"] = "ddb1831ecbd2bf95c3323502ae17df6e1df44ec0"
 
@@ -314,24 +311,6 @@ def main(
             save_weights_only=False,
             save_optim_on_train_end=True,
         )
-        
-        # ckpt_cfg = CheckpointingConfig(
-        #     enabled=True,
-        #     checkpoint_dir=checkpoint_path,
-        #     model_save_format="safetensors",
-        #     save_consolidated=False,
-        #     model_cache_dir="checkpoints/cache/",
-        #     model_repo_id="bionemo/foldcompression",
-        #     is_peft=False
-        # )
-        
-        # checkpoint_callback = MyModelCheckpoint(
-        #     monitor="val_loss",
-        #     save_top_k=5,
-        #     save_last=True,
-        #     mode="min",
-        #     dirpath=checkpoint_path
-        # )
 
         callbacks.append(checkpoint_callback)
 

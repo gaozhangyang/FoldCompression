@@ -88,7 +88,7 @@ class MultiHeadAttention(nn.Module):
         k = k.flatten(-2, -1)
         return q, k
 
-    def forward(self, position, x, attention_mask=None, blocks=None):
+    def forward(self, position, x, attention_mask=None, blocks=None, atom_mask=None):
         qkv_BLD3 = self.layernorm_qkv(x)
         query_BLD, key_BLD, value_BLD = torch.chunk(qkv_BLD3, 3, dim=-1)
         query_BLD, key_BLD = self.q_ln(query_BLD), self.k_ln(key_BLD)
@@ -111,10 +111,18 @@ class MultiHeadAttention(nn.Module):
         # count = 0
         B, H, L, D = query_BHLD.shape
         if blocks is not None:
-            M = blocks.mean(dim=-2, keepdims=True)
+            if atom_mask is None:
+                M = blocks.mean(dim=-2, keepdims=True)
+            else:
+                M = (blocks*atom_mask).sum(dim=-2, keepdim=True)/atom_mask.sum(dim=-2, keepdim=True)
             base_BLK3 = blocks - M
             eps = torch.finfo(blocks.dtype).eps
-            base_BLK3 = base_BLK3/(torch.norm(base_BLK3, dim=-1)[...,None]+eps)
+            if atom_mask is None:
+                base_BLK3 = base_BLK3/(torch.norm(base_BLK3, dim=-1)[...,None]+eps)
+                blocks_local = blocks-M
+            else:
+                base_BLK3 = base_BLK3*atom_mask
+                blocks_local = (blocks-M)*atom_mask
             ## ============ uni map, decoupled, checked =============
             # with torch.cuda.amp.autocast(enabled=False):
             #     length = attention_mask.sum(dim=-1)
@@ -125,7 +133,7 @@ class MultiHeadAttention(nn.Module):
             # context = context.to(context.dtype)
             
             length = attention_mask.sum(dim=-1)
-            tmp1 = torch.einsum('bhkd, bkcx, bqk->bhqdcx', key_BHLD/length[:,None,:,None], blocks-M, attention_mask.to(blocks.dtype))
+            tmp1 = torch.einsum('bhkd, bkcx, bqk->bhqdcx', key_BHLD/length[:,None,:,None], blocks_local, attention_mask.to(blocks.dtype))
             tmp2 = torch.einsum('bhqd, bhqdcx->bhqcx', query_BHLD, tmp1)
             
             context = torch.einsum('bqex, bhqcx->bhqec', base_BLK3, tmp2).reshape(B,H,L,-1) #/length[:,None,:,None]

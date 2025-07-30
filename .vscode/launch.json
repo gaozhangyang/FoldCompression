@@ -15,9 +15,9 @@
         // "--cluster-path", "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/data/train_keys_subset.msgpack",
         // "--database-path", "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/data/afdb_rep_mem_debug.db",
         "--precision=bf16",
-        "--num-gpus", "2",
+        "--num-gpus", "1",
         "--num-nodes", "1",
-        "--num-steps", "1000010",
+        "--num-steps", "100000000",
         "--result-dir", "./results/struct_compress/",
         "--max-seq-length", "512",
         "--resume-if-exists",
@@ -31,13 +31,13 @@
         "--create-tensorboard-logger",
         "--lr", "0.00",
         "--infer_feats", "0",
-        "--experiment-name", "debug",
+        "--experiment-name", "DecLayer12_new_megatron",
         // "--data-splits", "90, 5, 5" 
         "--data-splits", "9990, 5, 5",
         "--prefix_len", "32",
         "--dec_layers", "12",
         // "--enc_layers", "15",
-        // "--custom_checkpoint_path", "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/results/struct_compress/baseline_prefix32_len512_dec1_1M_bs32_run3/checkpoints/epoch=0-step=999999-consumed_samples=64192032.0-last.pt"
+        // "--custom_checkpoint_path", "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/results/struct_compress/DecLayer12_svckpt4/epoch=0-step=376999-consumed_samples=48256000.pt"
       ],
       "env": {
         "PYTHONPATH": "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/",
@@ -83,46 +83,6 @@
         "--infer_feats", "1",
         // "--enc_layers", "15",
         "--custom_checkpoint_path", "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/results/struct_compress/baseline_prefix32_len512_dec1_1M_bs32_run3/checkpoints/epoch=0-step=999999-consumed_samples=64192032.0-last.pt"
-      ],
-      "env": {
-        "PYTHONPATH": "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/",
-        "CUDA_VISIBLE_DEVICES": "1"
-      }
-    },
-   {
-      "name": "Run latent FM task",
-      "type": "python",
-      "request": "launch",
-      "justMyCode": true,
-      "program": "${workspaceFolder}/task_latent_FM/main.py",
-      "console": "integratedTerminal",
-      "args": [
-        "--config_name", "baseline",
-        // "--cluster-path", "/nfs_beijing_os/linlinchao/afdb/rep_mem_v2/afdb_rep_mem-cluster.msgpack",
-        // "--database-path", "/nfs_beijing_os/linlinchao/afdb/rep_mem_v2/afdb_rep_mem.db",
-        "--cluster-path", "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/data/train_keys_subset.msgpack",
-        "--database-path", "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/results/struct_compress/baseline_prefix32_len512_dec1_1M_bs32_run3_infer/compression_data.lmdb",
-        "--precision=fp16",
-        "--num-gpus", "1",
-        "--num-nodes", "1",
-        "--num-steps", "1000000",
-        "--result-dir", "./results/latentFM/",
-        "--max-seq-length", "512",
-        "--resume-if-exists",
-        "--limit-val-batches", "4",
-        "--micro-batch-size", "32",
-        "--num-layers", "12",
-        "--hidden-size", "480",
-        "--num-attention-head", "20",
-        "--ffn-hidden-size", "1920",
-        "--tensor-model-parallel-size", "1",
-        "--create-tensorboard-logger",
-        "--lr", "0.00",
-        "--experiment-name", "debug2",
-        "--data-splits", "9990, 5, 5",
-        "--prefix_len", "32",
-        "--dec_layers", "1",
-        // "--custom_checkpoint_path", "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/results/struct_compress/baseline_prefix32_len512_dec1/checkpoints/epoch=0-step=94999-consumed_samples=760000.0/model.pt"
       ],
       "env": {
         "PYTHONPATH": "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/",
@@ -192,6 +152,47 @@
         "CUDA_LAUNCH_BLOCKING": "1"
       },
       "justMyCode": false
-    }
+    },
+    {
+      "name": "Run inverse folding",
+      "type": "python",
+      "request": "launch",
+      "justMyCode": true,
+      "program": "${workspaceFolder}/task_inversefolding/main.py",
+      "console": "integratedTerminal",
+      "args": [
+        "--config_name", "baseline",
+        "--cluster-path", "/nfs_beijing_os/linlinchao/afdb/rep_mem_v2/afdb_rep_mem-cluster.msgpack",
+        "--database-path", "/nfs_beijing_os/linlinchao/afdb/rep_mem_v2/afdb_rep_mem.db",
+        "--precision=bf16",
+        "--num-gpus", "1",
+        "--num-nodes", "1",
+        "--num-steps", "100000000",
+        "--result-dir", "./results/inversefolding/",
+        "--max-seq-length", "512",
+        "--resume-if-exists",
+        "--limit-val-batches", "4",
+        "--micro-batch-size", "32",
+        "--num-layers", "12",
+        "--hidden-size", "480",
+        "--num-attention-head", "20",
+        "--ffn-hidden-size", "1920",
+        "--tensor-model-parallel-size", "1",
+        "--create-tensorboard-logger",
+        "--lr", "0.00",
+        "--infer_feats", "0",
+        "--experiment-name", "debug2",
+        // "--data-splits", "90, 5, 5" 
+        "--data-splits", "9990, 5, 5",
+        "--prefix_len", "0",
+        "--dec_layers", "12",
+      ],
+      "env": {
+        "PYTHONPATH": "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/",
+        // "NVTE_FUSED_ATTN": "1",
+        // "NVTE_FLASH_ATTN": "0"
+        // "CUDA_VISIBLE_DEVICES": "1"
+      }
+    },
   ]
 }

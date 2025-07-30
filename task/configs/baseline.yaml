@@ -9,8 +9,8 @@ train:
   early_stop_on_step: null
   warmup_steps: 2000
   num_dataset_workers: 8
-  val_check_interval: 40
-  log_every_n_steps: 40
+  val_check_interval: 20
+  log_every_n_steps: 20
 
 logging:
   precision: bf16
@@ -59,7 +59,7 @@ checkpoint:
   save_best_checkpoint: true
   save_last_checkpoint: true
   metric_to_monitor_for_checkpoints: val_loss
-  save_top_k: 2
+  save_top_k: 5
   restore_from_checkpoint_path: null
 
 nsys_profiling:
