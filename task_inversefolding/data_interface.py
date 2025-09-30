@@ -129,12 +129,14 @@ class ESMDataModule(DataInterfaceBase):
         dataidx = 0
         for data in data_list:
             L = data['seq_ids'].shape[0]
-            if mode=='train':
-                n = int(torch.randint(1, segment_num+1, (1,)))
-                k = int(torch.randint(1, n+1, (1,)))
-            else:
-                n=1
-                k=1
+            # if mode=='train':
+            #     n = int(torch.randint(1, segment_num+1, (1,)))
+            #     k = int(torch.randint(1, n+1, (1,)))
+            # else:
+            #     n=1
+            #     k=1
+            n=1
+            k=1
             unmasked = torch.tensor(Segment(L, n, k))
             L = unmasked.shape[0] + self.hparams.prefix_len
             
@@ -148,12 +150,14 @@ class ESMDataModule(DataInterfaceBase):
             
             # coords_tmp[torch.isnan(coords_tmp)] = 0
             coords_tmp = torch.nan_to_num(coords_tmp, nan=0.0)
+            center = coords_tmp[:,0].mean(dim=0)[None,None]
+            coords_tmp = coords_tmp-center
             # add k prefix tokens
             seq_id_tmp = torch.cat([torch.zeros((self.hparams.prefix_len,), dtype=torch.int64)+34, seq_id_tmp], dim=0)
             coords_tmp = torch.cat([torch.zeros((self.hparams.prefix_len, 37, 3)), coords_tmp], dim=0)
                 
             position.append(torch.cat([-torch.arange(1, 1+self.hparams.prefix_len), unmasked]))
-            blocks = coords_tmp[..., [0,1,2,4], :]+noise_scale*torch.randn_like(coords_tmp[..., :4, :])
+            blocks = coords_tmp[..., [0,1,2], :]+noise_scale*torch.randn_like(coords_tmp[..., :3, :])
             types = torch.arange(blocks.shape[1])[None].repeat(blocks.shape[0],1)
             blocks_list.append(blocks)
             types_list.append(types)
@@ -205,19 +209,26 @@ class ESMDataModule(DataInterfaceBase):
         '''
         N, CA, C,  O
         '''
-        if random.random() < 0.5:
-            atom_mask = randomize_global_mask(blocks)
-        else:
-            atom_mask = randomize_per_residue(blocks)
+        # if random.random() < 0.5:
+        #     atom_mask = randomize_global_mask(blocks)
+        # else:
+        #     atom_mask = randomize_per_residue(blocks)
+        
+        # construct node features
+        
+        
+        
         return {'names': names,
                 'seq_ids': seq_ids,
                 'coords': coords,
                 'division': lens,
                 'loss_mask': loss_mask,
-                'blocks': blocks*atom_mask,
+                'blocks': blocks,
+                # 'blocks': blocks*atom_mask,
                 'data_id': data_id,
                 'position': position,
-                'atom_mask': atom_mask,}
+                # 'atom_mask': atom_mask,
+                }
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         # Dump your sampler’s state into the trainer checkpoint
@@ -306,3 +317,6 @@ def randomize_global_mask(atom_data):
         if keep[j]:
             mask[:, j, :] = 1
     return mask
+
+
+

@@ -37,7 +37,7 @@ class ESMDataModule(DataInterfaceBase):
         random_mask_strategy: dataset.RandomMaskStrategy = dataset.RandomMaskStrategy.ALL_TOKENS,
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
         dataloader_type: Literal["single", "cyclic"] = "single",
-        noise_scale = 0.1,
+        noise_scale = 0.01,
         prefix_len = 6,
         data_splits: str = '9990, 5, 5',  # train, val, test
     ) -> None:
@@ -157,12 +157,14 @@ class ESMDataModule(DataInterfaceBase):
             
             # coords_tmp[torch.isnan(coords_tmp)] = 0
             coords_tmp = torch.nan_to_num(coords_tmp, nan=0.0)
+            center = coords_tmp[:,0].mean(dim=0)[None,None]
+            coords_tmp = coords_tmp-center
             # add k prefix tokens
             seq_id_tmp = torch.cat([torch.zeros((self.hparams.prefix_len,), dtype=torch.int64)+34, seq_id_tmp], dim=0)
             coords_tmp = torch.cat([torch.zeros((self.hparams.prefix_len, 37, 3)), coords_tmp], dim=0)
                 
             position.append(torch.cat([-torch.arange(1, 1+self.hparams.prefix_len), unmasked]))
-            blocks = coords_tmp[..., :4, :]+noise_scale*torch.randn_like(coords_tmp[..., :4, :])
+            blocks = coords_tmp[..., :3, :]+noise_scale*torch.randn_like(coords_tmp[..., :3, :])
             types = torch.arange(blocks.shape[1])[None].repeat(blocks.shape[0],1)
             blocks_list.append(blocks)
             types_list.append(types)

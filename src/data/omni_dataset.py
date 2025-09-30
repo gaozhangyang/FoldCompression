@@ -71,7 +71,7 @@ class LMDBDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         # return self.total_samples
-        return int(1e8)
+        return int(1e10)
     
 
     def __getitem__(
@@ -210,3 +210,83 @@ def split_ds(
 
     return train_clusters, val_clusters, test_clusters
 
+
+from torch import Tensor
+
+def batched_topk_neighbors_3d(
+    X: Tensor,            # [B, L, 3], float
+    mask: Tensor,         # [B, L],   bool  True=valid, False=padding
+    K: int
+) -> Tensor:
+    """
+    返回邻居索引 indices: [B, L, K]
+    规则：
+      - 只在同一 batch 内寻找邻居
+      - 仅考虑 mask=True 的位置为候选邻居
+      - 自身不计为邻居；若候选不足 K，用自身索引填充
+      - 距离相等时按索引升序打破平手
+      - 对于 mask=False 的查询位置，结果全为自身索引
+    """
+    assert X.dim() == 3 and X.size(-1) == 3, "X should be [B, L, 3]"
+    assert mask.dim() == 2 and mask.shape[:2] == X.shape[:2], "mask should be [B, L]"
+    B, L, _ = X.shape
+    device = X.device
+    dtype = X.dtype
+
+    # --- 计算两两平方距离：d(i,j) = ||xi - xj||^2 = ||xi||^2 + ||xj||^2 - 2 xi·xj
+    x2 = (X * X).sum(-1)                    # [B, L]
+    # batch 内点乘
+    G = torch.bmm(X, X.transpose(1, 2))     # [B, L, L]
+    dist2 = x2.unsqueeze(2) + x2.unsqueeze(1) - 2.0 * G  # [B, L, L]
+    # 数值稳定：避免出现极小负数
+    dist2 = dist2.clamp_min_(0)
+
+    # --- 掩码处理：无效列(候选邻居 j)设为 +inf；无效行(查询 i)整行设为 +inf；对角线设为 +inf（排除自身）
+    INF = torch.tensor(float("inf"), device=device, dtype=dtype)
+    # 无效列（j 不可用）
+    col_mask = mask.unsqueeze(1).expand(B, L, L)         # broadcast 到列
+    dist2 = dist2.masked_fill(~col_mask, INF)
+
+    # 无效行（i 不可用）
+    row_mask = mask.unsqueeze(2).expand(B, L, L)         # broadcast 到行
+    dist2 = dist2.masked_fill(~row_mask, INF)
+
+    # 排除自身：对角线设为 +inf（仅对有效行有意义，无效行已是 +inf）
+    eye = torch.eye(L, device=device, dtype=torch.bool).unsqueeze(0)  # [1, L, L]
+    dist2 = dist2.masked_fill(eye, INF)
+
+    # --- 距离相等时按索引升序打破平手：给每个“列 j”加极小权重 eps * j
+    # 这样更小的 j 拥有更小的加权，保持“按距离升序 + 索引升序”的排序
+    # 注意：对 inf 加任意有限数仍为 inf，不影响掩码逻辑
+    idxs = torch.arange(L, device=device, dtype=dtype).view(1, 1, L)  # 作为列的 j
+    # 选择很小的 eps，远小于距离量级；用 1e-7 通常足够，避免改变真实排序
+    eps = torch.tensor(1e-7, device=device, dtype=dtype)
+    dist2 = dist2 + eps * idxs  # 广播到 [B, L, L]
+
+    # --- 取每个位置的最小 K 个（由近到远）
+    # torch.topk 支持 largest=False 直接取最小值
+    # 即使有 inf，也会被排到后面
+    topk_vals, topk_idx = torch.topk(dist2, k=min(K, L), dim=-1, largest=False)  # [B, L, K'], K'<=L
+
+    # 若 K > L-1（极端情况），topk 仍然会给出最多 L 个下标；我们统一裁成 K 列
+    if topk_idx.size(-1) != K:
+        # pad 到 K 列，用占位后再填自索引
+        pad_cols = K - topk_idx.size(-1)
+        pad = torch.full((B, L, pad_cols), 0, device=device, dtype=torch.long)
+        topk_idx = torch.cat([topk_idx, pad], dim=-1)
+        topk_vals = torch.cat([topk_vals, torch.full((B, L, pad_cols), INF, device=device, dtype=dtype)], dim=-1)
+
+    # --- 将不可用的位置（值为 inf）替换为“自身索引”
+    self_idx = torch.arange(L, device=device).view(1, L, 1).expand(B, L, K)  # [B, L, K]
+    is_finite = torch.isfinite(topk_vals)  # [B, L, K]
+    # 对于查询行本身无效（mask=False）的情况，整行 topk_vals 都是 inf -> 全部替换为自身
+    indices = torch.where(is_finite, topk_idx, self_idx)
+
+    return indices  # [B, L, K]
+
+from torch import Tensor
+def index_along_len_tad(X: Tensor, idx: Tensor) -> Tensor:
+    B, L, H, C = X.shape
+    X_expanded = X.unsqueeze(2).expand(B, L, idx.size(2), H, C)             # [B,L,K,H,3]
+    idx_expanded = idx.unsqueeze(-1).unsqueeze(-1).expand_as(X_expanded)    # [B,L,K,H,3]
+    return torch.take_along_dim(X_expanded, idx_expanded, dim=1)            # [B,L,K,H,3]

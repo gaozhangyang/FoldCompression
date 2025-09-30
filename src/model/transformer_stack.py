@@ -36,7 +36,8 @@ class TransformerStack(nn.Module):
         ffn_type: str = "swiglu",  # swiglu | gelu
         expansion_ratio: float = 8 / 3,
         is_geo_attn=False,
-        geo_attn_dim=16
+        geo_attn_dim=16,
+        scale=100
     ):
         super().__init__()
         self.blocks = nn.ModuleList(
@@ -55,7 +56,8 @@ class TransformerStack(nn.Module):
                     qk_layernorm=qk_layernorm,
                     ffn_type=ffn_type,
                     is_geo_attn=is_geo_attn,
-                    geo_attn_dim=geo_attn_dim
+                    geo_attn_dim=geo_attn_dim,
+                    scale=scale
                 )
                 for i in range(n_layers)
             ]

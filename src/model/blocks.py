@@ -83,12 +83,13 @@ class UnifiedTransformerBlock(nn.Module):
         ffn_type: str = "swiglu",  # swiglu | gelu
         is_geo_attn= False,
         geo_attn_dim = 16,
+        scale = 100
     ):
         super().__init__()
         self.use_plain_attn = use_plain_attn
 
         self.attn = MultiHeadAttention(
-            d_model, n_heads, bias, qk_layernorm=qk_layernorm, is_geo_attn=is_geo_attn, geo_attn_dim=geo_attn_dim
+            d_model, n_heads, bias, qk_layernorm=qk_layernorm, is_geo_attn=is_geo_attn, geo_attn_dim=geo_attn_dim, scale=scale
         )
         if ffn_type == "swiglu":
             self.ffn = swiglu_ln_ffn(d_model, expansion_ratio, bias)

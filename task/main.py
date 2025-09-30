@@ -34,7 +34,7 @@ from task.model_interface import BionemoLightningModule
 from src.utils.utils import process_args
 import torch
 from lightning.pytorch.callbacks import Callback
-from src.utils.callbacks import MyModelCheckpoint
+# from src.utils.callbacks import MyModelCheckpoint
 # from nemo_automodel.components.checkpoint.checkpointing import CheckpointingConfig
 import os
 os.environ["WANDB_API_KEY"] = "ddb1831ecbd2bf95c3323502ae17df6e1df44ec0"
@@ -113,6 +113,7 @@ def main(
     hidden_dim: int = 128,
     data_splits: str = '95, 4, 1',
     custom_checkpoint_path: str = "",
+    nn_neighbors: int = 10,
 ) -> nl.Trainer:
     """Train an ESM2 model on UR data.
 
@@ -205,7 +206,8 @@ def main(
         num_workers=num_dataset_workers,
         random_mask_strategy=random_mask_strategy,
         prefix_len=prefix_len,
-        data_splits=data_splits
+        data_splits=data_splits,
+        noise_scale=0.01
     )
 
     # Set decoder_first_pipeline_num_layers if needed and not provided
@@ -229,6 +231,7 @@ def main(
         scheduler_num_steps=scheduler_num_steps,
         custom_checkpoint_path = custom_checkpoint_path,
         infer_feats=infer_feats,
+        nn_neighbors=nn_neighbors,
     )
     
 
@@ -834,6 +837,7 @@ def get_parser():
     parser.add_argument('--hidden_dim', default=128, type=int)
     parser.add_argument('--custom_checkpoint_path', default="", type=str)
     parser.add_argument('--infer_feats', default=1, type=int)
+    parser.add_argument('--nn_neighbors', default=8, type=int)
     args = process_args(parser, config_path='../../task/configs')
     print(args)
     return args

@@ -9,7 +9,7 @@ def occupy_gpu(gpu_id):
     print(f"[GPU {gpu_id}] Initializing...")
 
     # 你可以手动调这个大小撑满显存
-    size = 60000  # 大概 4GB*3 的矩阵：float32，占显存超快
+    size = 80000  # 大概 4GB*3 的矩阵：float32，占显存超快
 
     # 创建占显存的大张量
     a = torch.randn((size, size), device=device)

@@ -196,3 +196,6 @@ Thumbs.db
 .python_history
 Megatron-LM/*
 NeMo/*
+homology_analysis/ASTRAL40_pdbstyle/*
+homology_analysis/*
+

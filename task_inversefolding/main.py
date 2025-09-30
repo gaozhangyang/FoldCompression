@@ -110,6 +110,7 @@ def main(
     hidden_dim: int = 128,
     data_splits: str = '95, 4, 1',
     custom_checkpoint_path: str = "",
+    nn_neighbors: int = 10,
 ) -> nl.Trainer:
     """Train an ESM2 model on UR data.
 
@@ -202,7 +203,8 @@ def main(
         num_workers=num_dataset_workers,
         random_mask_strategy=random_mask_strategy,
         prefix_len=prefix_len,
-        data_splits=data_splits
+        data_splits=data_splits,
+        noise_scale=0.01
     )
 
     # Set decoder_first_pipeline_num_layers if needed and not provided
@@ -226,6 +228,7 @@ def main(
         scheduler_num_steps=scheduler_num_steps,
         custom_checkpoint_path = custom_checkpoint_path,
         infer_feats=infer_feats,
+        nn_neighbors=nn_neighbors,
     )
     
 
@@ -807,13 +810,14 @@ def get_parser():
     )
     parser.add_argument("--config_name", type=str, default='baseline', help="Name of the Hydra config to use")
     parser.add_argument('--seq_len', default=1024, type=int)
-    parser.add_argument('--prefix_len', default=6, type=int)
+    parser.add_argument('--prefix_len', default=0, type=int)
     parser.add_argument('--enc_layers', default=8, type=int)
     parser.add_argument('--dec_layers', default=8, type=int)
     parser.add_argument('--hidden_dim', default=128, type=int)
     parser.add_argument('--custom_checkpoint_path', default="", type=str)
     parser.add_argument('--infer_feats', default=1, type=int)
-    args = process_args(parser, config_path='../../task/configs')
+    parser.add_argument('--nn_neighbors', default=10, type=int)
+    args = process_args(parser, config_path='../../task_inversefolding/configs')
     print(args)
     return args
 

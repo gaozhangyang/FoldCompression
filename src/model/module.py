@@ -200,54 +200,12 @@ class UpdateNode(nn.Module):
 
 
 
-    
-class StructureSimEncoder(nn.Module):
-    def __init__(self, 
-                 geo_layer, 
-                 attn_layer,
-                 ffn_layer,
-                 edge_layer, 
-                 encoder_layer,
-                 hidden_dim, 
-                 dropout=0):
-        """ Graph labeling network """
-        super(StructureSimEncoder, self).__init__()
-        self.__dict__.update(locals())
-
-
-        self.node_embedding = build_MLP(2, 57, hidden_dim, hidden_dim)
-        self.edge_embedding = build_MLP(2, 85, hidden_dim, hidden_dim)
-
-        self.interface_layers = FrameFormer(geo_layer, 
-                 attn_layer,
-                 ffn_layer,
-                 edge_layer, 
-                 hidden_dim, 
-                 dropout=dropout)
-        self.proj1 = nn.Linear(hidden_dim, 1280)
-        self.encoder_layers=TransformerStack(
-            1280, 20, 1, encoder_layer-1, scale_residue=False, n_layers_geom=0
-        )
-        self.proj2 = nn.Linear(1280, hidden_dim)
-        
-
-
-
-    def forward(self, V, E, E_trans, E_rots, attn_mask):
-        B, L, d = V.shape
-        h_V = self.node_embedding(V.view(-1,d)).view(B,L,-1)
-        h_E = self.edge_embedding(E.view(B*L*L,-1)).view(B,L,L,-1)
-        h_V, h_E = self.interface_layers(h_V, h_E, E_trans, E_rots, attn_mask)
-        h_V = self.proj1(h_V)
-        h_V = self.encoder_layers(h_V, attn_mask)
-        h_V = self.proj2(h_V)
-        return h_V
-
 class StructureSimEncoder2(nn.Module):
     def __init__(self, 
                  encoder_layer,
                  hidden_dim, 
-                 input_node_dim=16):
+                 input_node_dim=9,
+                 scale=100):
         """ Graph labeling network """
         super(StructureSimEncoder2, self).__init__()
         self.__dict__.update(locals())
@@ -257,7 +215,7 @@ class StructureSimEncoder2(nn.Module):
         # self.edge_embedding = build_MLP(2, 85, hidden_dim, 1280)
         
         self.encoder_layers=TransformerStack(
-            1280, 20, 1, encoder_layer, scale_residue=False, n_layers_geom=0, is_geo_attn=True
+            1280, 20, 1, encoder_layer, scale_residue=False, n_layers_geom=0, is_geo_attn=True, scale=scale
         )
         self.proj = nn.Linear(1280, hidden_dim)
         
@@ -271,37 +229,6 @@ class StructureSimEncoder2(nn.Module):
         h_V = self.proj(h_V)
         return h_V
     
-    
-
-class StructureSimEncoder3(nn.Module):
-    def __init__(self, 
-                 geo_layer, 
-                 attn_layer,
-                 ffn_layer,
-                 edge_layer, 
-                 encoder_layer,
-                 hidden_dim, 
-                 dropout=0):
-        """ Graph labeling network """
-        super(StructureSimEncoder3, self).__init__()
-        self.__dict__.update(locals())
-
-
-        self.node_embedding = build_MLP(2, 57, hidden_dim, 1280)
-        self.edge_embedding = build_MLP(2, 85, hidden_dim, 1280)
-        self.encoder_layers=TransformerStack(
-            1280, 20, 1, encoder_layer, scale_residue=False, n_layers_geom=0
-        )
-        self.proj2 = nn.Linear(1280, hidden_dim)
-        
-
-    def forward(self, V, E, E_trans, E_rots, attn_mask):
-        B, L, d = V.shape
-        h_V = self.node_embedding(V.view(-1,d)).view(B,L,-1)
-        h_E = self.edge_embedding(E.view(B*L*L,-1)).view(B,L,L,-1)
-        h_V = self.encoder_layers(h_V, attn_mask, kv_mat=h_E)
-        h_V = self.proj2(h_V)
-        return h_V
 
 
 class StructureDecoder(nn.Module):
@@ -316,7 +243,7 @@ class StructureDecoder(nn.Module):
         self.decoder_channels = d_model
         self.vq_enc = nn.Linear(128, d_model)
         self.decoder_stack = TransformerStack(
-            d_model, n_heads, 1, n_layers, scale_residue=False, n_layers_geom=0, is_geo_attn=False
+            d_model, n_heads, 1, n_layers, scale_residue=False, n_layers_geom=0, is_geo_attn=False, scale=100
         )
         self.pred_head_struct = nn.Linear(d_model, 3*5)
         

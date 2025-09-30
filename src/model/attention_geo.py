@@ -54,7 +54,8 @@ class MultiHeadAttention(nn.Module):
         bias: bool = False,
         qk_layernorm: bool = True,
         is_geo_attn=False,
-        geo_attn_dim=16
+        geo_attn_dim=16,
+        scale=100
     ):
         super().__init__()
 
@@ -67,6 +68,7 @@ class MultiHeadAttention(nn.Module):
         )
 
         self.out_proj = nn.Linear(d_model, d_model, bias=bias)
+        self.scale = scale
 
         if qk_layernorm:
             self.q_ln = nn.LayerNorm(d_model, bias=bias)
@@ -77,7 +79,9 @@ class MultiHeadAttention(nn.Module):
 
         self.rotary = RotaryEmbedding(d_model // n_heads)
         if is_geo_attn:
-            self.edge_embed = nn.Linear(geo_attn_dim, 64, bias=False)
+            # self.edge_embed = nn.Linear(geo_attn_dim, 64, bias=False)
+            self.geo_key = nn.Linear(3, n_heads, bias=False)
+            self.geo_query = nn.Linear(3, n_heads, bias=False)
 
 
     def _apply_rotary(self, position, q: torch.Tensor, k: torch.Tensor):
@@ -111,38 +115,26 @@ class MultiHeadAttention(nn.Module):
         # count = 0
         B, H, L, D = query_BHLD.shape
         if blocks is not None:
-            if atom_mask is None:
-                M = blocks.mean(dim=-2, keepdims=True)
-            else:
-                M = (blocks*atom_mask).sum(dim=-2, keepdim=True)/atom_mask.sum(dim=-2, keepdim=True)
-            base_BLK3 = blocks - M
-            eps = torch.finfo(blocks.dtype).eps
-            if atom_mask is None:
-                base_BLK3 = base_BLK3/(torch.norm(base_BLK3, dim=-1)[...,None]+eps)
-                blocks_local = blocks-M
-            else:
-                base_BLK3 = base_BLK3*atom_mask
-                blocks_local = (blocks-M)*atom_mask
-            ## ============ uni map, decoupled, checked =============
-            # with torch.cuda.amp.autocast(enabled=False):
-            #     length = attention_mask.sum(dim=-1)
-            #     tmp1 = torch.einsum('bhkd, bkcx, bqk->bhqdcx', key_BHLD/length[:,None,:,None], blocks-M, attention_mask.to(blocks.dtype))
-            #     tmp2 = torch.einsum('bhqd, bhqdcx->bhqcx', query_BHLD, tmp1)
-                
-            #     context = torch.einsum('bqex, bhqcx->bhqec', base_BLK3, tmp2).reshape(B,H,L,-1) #/length[:,None,:,None]
-            # context = context.to(context.dtype)
+            dtype = blocks.dtype
+            scale = self.scale # 这个缩放非常有必要，防止因为精度范围溢出导致的旋转/平移不变性失效
+            X = blocks/scale # [bacth, L, 4, 3]
+            X_bar = X.mean(dim=-2, keepdims=True)
+            B = X - X_bar
+            # self.geo_query(X.permute(0,1,3,2)).permute(0,1,3,2)
+            # B = B/(torch.norm(B, dim=-1)[...,None]+1e-6)
+            v = (B * X_bar).sum(dim=-1, keepdims=True)
+            Q = torch.cat([B, -v], dim=-1)
+            K = torch.cat([X, torch.ones_like(v)], dim=-1)
+            Q_BHLD = self.geo_query(Q.permute(0,1,3,2)).permute(0,3,1,2)
+            K_BHLD = self.geo_key(K.permute(0,1,3,2)).permute(0,3,1,2)
             
-            length = attention_mask.sum(dim=-1)
-            tmp1 = torch.einsum('bhkd, bkcx, bqk->bhqdcx', key_BHLD/length[:,None,:,None], blocks_local, attention_mask.to(blocks.dtype))
-            tmp2 = torch.einsum('bhqd, bhqdcx->bhqcx', query_BHLD, tmp1)
-            
-            context = torch.einsum('bqex, bhqcx->bhqec', base_BLK3, tmp2).reshape(B,H,L,-1) #/length[:,None,:,None]
-            context = self.edge_embed(context)
-
+            query_BHLD = torch.cat([query_BHLD, Q_BHLD], dim=-1)
+            key_BHLD = torch.cat([key_BHLD, K_BHLD], dim=-1)
             context_BHLD = F.scaled_dot_product_attention(
                 query_BHLD, key_BHLD, value_BHLD, mask_BHLL
-            )+context
-            out_X = blocks
+            )
+            out_X = None
+            
         else:
             context_BHLD = F.scaled_dot_product_attention(
                 query_BHLD, key_BHLD, value_BHLD, mask_BHLL

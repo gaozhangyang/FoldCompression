@@ -5,14 +5,14 @@ from typing import Iterator, Optional, Dict
 import torch
 from bionemo.llm.api import MegatronModelType, MegatronLossType
 from src.interface.model_interface_base import ModelInterfaceBase
-from src.model.foldtoken_model_simplify import InverseFoldingModelConfig, InverseFoldingModel
+from src.model.inversefolding_model import InverseFoldingModelConfig, InverseFoldingModel, compute_custom_loss
 from bionemo.llm.model.biobert.lightning import get_batch_on_this_context_parallel_rank
 from typing import Iterator, Optional, Dict, Any
-from task_inversefolding.loss import compute_custom_loss
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from megatron.core.optimizer import OptimizerConfig
 from bionemo.llm.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
 from torch.cuda import empty_cache
+from src.data.omni_dataset import batched_topk_neighbors_3d, index_along_len_tad
 
 class BionemoLightningModule(
     ModelInterfaceBase[MegatronModelType, MegatronLossType]
@@ -31,6 +31,7 @@ class BionemoLightningModule(
         scheduler_num_steps: int = 10000,
         custom_checkpoint_path: Optional[str] = None,
         infer_feats: int = 0,
+        nn_neighbors: int = 10,
         **model_construct_args,
     ) -> None:
         """Pass through all initialization args to the base class."""
@@ -45,6 +46,7 @@ class BionemoLightningModule(
         self.optim.connect(self)
         self.config = self.set_config()
         self.loss_reduction_class = self.config.get_loss_reduction_class()
+        
         
         
     def set_config(self):
@@ -66,6 +68,7 @@ class BionemoLightningModule(
             self.hparams.enc_layers,
             self.hparams.dec_layers,
             self.hparams.hidden_dim,
+            self.hparams.nn_neighbors,
         )
         if self.hparams.custom_checkpoint_path != "":
             self.load_from_torch_ckpt(self.hparams.custom_checkpoint_path)
@@ -101,25 +104,39 @@ class BionemoLightningModule(
         attn_mask = (attn_mask | dummy_node) & ~dummy_node.transpose(1, 2)
 
         B, L = batch['blocks'].shape[:2]
+        # blocks = batch['blocks']
+        # atom_mask = batch['atom_mask']
+        # M = (blocks*atom_mask).sum(dim=-2, keepdim=True)/atom_mask.sum(dim=-2, keepdim=True)
+        # base = blocks - M
+        # eps = torch.finfo(base.dtype).eps
+        # base = base / (torch.norm(base, dim=-1, keepdim=True) + eps)
+        # base = base*atom_mask
+        # V = torch.einsum('bqex,bqcx->bqec', base, blocks).reshape(B, L, -1)
+
+        # V = torch.rand(B,L,16, device=blocks.device, dtype=blocks.dtype)
+        
+        # R = random_rotation_matrix()[0]
+        # t = torch.rand(1,1,1,3).cuda().to(R.dtype)+3
+        # blocks = torch.einsum('blki, ij->blkj', batch['blocks'], R.cuda())
+        
         blocks = batch['blocks']
-        atom_mask = batch['atom_mask']
-        M = (blocks*atom_mask).sum(dim=-2, keepdim=True)/atom_mask.sum(dim=-2, keepdim=True)
+        seq_ids = batch['seq_ids']
+        B, L, H, _ = blocks.shape
+        select = batched_topk_neighbors_3d(blocks[:,:,0], seq_ids!=-1, self.hparams.nn_neighbors)
+        M = (blocks).mean(dim=-2, keepdim=True)
         base = blocks - M
         eps = torch.finfo(base.dtype).eps
         base = base / (torch.norm(base, dim=-1, keepdim=True) + eps)
-        base = base*atom_mask
-        V = torch.einsum('bqex,bqcx->bqec', base, blocks).reshape(B, L, -1)
+        blocks_neighbors = index_along_len_tad(blocks, select)
 
-        # all_steps = len(self.trainer.datamodule.train_dataloader())
-        # all_steps = 20000∂
+        V = torch.einsum('blex,blkcx->blkec', base, blocks_neighbors-M[:,:,None]).reshape(B, L, -1)
         
         predS = self.module(
             batch['position'],
             batch['seq_ids'],
             V,
             batch['blocks'],
-            attn_mask,
-            atom_mask
+            attn_mask
         )
         return {'predS': predS, 'mask': attn_mask}
 
@@ -128,8 +145,9 @@ class BionemoLightningModule(
         batch['prefix_len'] = self.hparams.prefix_len
         
         # R = random_rotation_matrix()[0]
-        # batch['coords'] = torch.einsum('blki, ij->blkj', batch['coords'], R.cuda())
-        # batch['blocks'] = torch.einsum('blki, ij->blkj', batch['blocks'], R.cuda())
+        # t = torch.rand(1,1,1,3).cuda().to(R.dtype)+3
+        # batch['coords'] = torch.einsum('blki, ij->blkj', batch['coords'], R.cuda())+t
+        # batch['blocks'] = torch.einsum('blki, ij->blkj', batch['blocks'], R.cuda())+t
         # outputs2 = self.forward_step(batch)
         # loss2, results2 = compute_custom_loss(outputs2, batch)
         
@@ -321,6 +339,9 @@ def random_rotation_matrix(batch_size: int = 1, device=None, dtype=torch.float32
     ), dim=-1).reshape(batch_size, 3, 3)
 
     return R
+
+
+
 
 # 示例用法
 if __name__ == "__main__":
