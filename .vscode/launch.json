@@ -31,11 +31,15 @@
         "--create-tensorboard-logger",
         "--lr", "0.00",
         "--infer_feats", "0",
-        "--experiment-name", "ailab_prefix32_len512_dec1_1M_nn8",
+        "--experiment-name", "debug",
         // "--data-splits", "90, 5, 5" 
         "--data-splits", "9990, 5, 5",
-        "--prefix_len", "0",
+        "--prefix_len", "32",
         "--dec_layers", "12",
+        "--input_modality", "structure",
+        "--output_modality", "structure",
+        "--use_dino", "1",
+        "--nn_neighbors", "10",
         // "--enc_layers", "15",
         // "--custom_checkpoint_path", "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/results/struct_compress/DecLayer12_svckpt4/epoch=0-step=376999-consumed_samples=48256000.pt"
       ],

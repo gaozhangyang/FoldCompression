@@ -117,6 +117,7 @@ class MultiHeadAttention(nn.Module):
         if blocks is not None:
             dtype = blocks.dtype
             scale = self.scale # 这个缩放非常有必要，防止因为精度范围溢出导致的旋转/平移不变性失效
+            struct_mask = ~((blocks==0).all(dim=(-1,-2))) # True where structure is valid
             X = blocks/scale # [bacth, L, 4, 3]
             X_bar = X.mean(dim=-2, keepdims=True)
             B = X - X_bar
@@ -128,8 +129,8 @@ class MultiHeadAttention(nn.Module):
             Q_BHLD = self.geo_query(Q.permute(0,1,3,2)).permute(0,3,1,2)
             K_BHLD = self.geo_key(K.permute(0,1,3,2)).permute(0,3,1,2)
             
-            query_BHLD = torch.cat([query_BHLD, Q_BHLD], dim=-1)
-            key_BHLD = torch.cat([key_BHLD, K_BHLD], dim=-1)
+            query_BHLD = torch.cat([query_BHLD, Q_BHLD*struct_mask[:,None,:,None]], dim=-1)
+            key_BHLD = torch.cat([key_BHLD, K_BHLD*struct_mask[:,None,:,None]], dim=-1)
             context_BHLD = F.scaled_dot_product_attention(
                 query_BHLD, key_BHLD, value_BHLD, mask_BHLL
             )

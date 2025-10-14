@@ -18,50 +18,45 @@ Mode = Literal["train", "validation", "test"]
 class ESMDataModule(DataInterfaceBase):
     """LightningDataModule wrapper of `ESMDataset`."""
 
-    def __init__(
-        self,
-        cluster_path: str | os.PathLike,
-        database_path: str | os.PathLike,
-        seed: int | None = 42,
-        min_seq_length: int | None = None,
-        max_seq_length: int = 1024,
-        micro_batch_size: int = 4,
-        global_batch_size: int = 8,
-        num_workers: int = 10,  # TODO(@jomitchell) can this be automatically set?
-        persistent_workers: bool = True,
-        pin_memory: bool = True,
-        rampup_batch_size: list[int] | None = None,
-        mask_prob: float = 0.15,
-        mask_token_prob: float = 0.8,
-        mask_random_prob: float = 0.1,
-        random_mask_strategy: dataset.RandomMaskStrategy = dataset.RandomMaskStrategy.ALL_TOKENS,
-        tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
-        dataloader_type: Literal["single", "cyclic"] = "single",
-        noise_scale = 0.01,
-        prefix_len = 6,
-        data_splits: str = '9990, 5, 5',  # train, val, test
-    ) -> None:
+    def __init__(self, config) -> None:
         super().__init__()
-        self.save_hyperparameters()
-        # del self.hparams['optimizer'] # optimizer do not support serialization
-        self._seed = seed
-        self._min_seq_length = min_seq_length if min_seq_length is not None else max_seq_length
-        self._max_seq_length = max_seq_length
-        self._mask_prob = mask_prob
-        self._mask_token_prob = mask_token_prob
-        self._mask_random_prob = mask_random_prob
-        self._random_mask_strategy = random_mask_strategy
-        self._tokenizer = tokenizer
-
-        self._micro_batch_size = micro_batch_size
-        self._num_workers = num_workers
-        self._persistent_workers = persistent_workers
-        self._pin_memory = pin_memory
-        self.seq_len = max_seq_length
+        from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
+        # Store full config bundle
+        self.config = config
+        # Defaults and derived values
+        self._seed = 42
+        self._min_seq_length = (
+            self.config.data.min_seq_length
+            if self.config.data.min_seq_length is not None
+            else self.config.data.max_seq_length
+        )
+        self._max_seq_length = self.config.data.max_seq_length
+        self._mask_prob = 0.15
+        self._mask_token_prob = 0.8
+        self._mask_random_prob = 0.1
+        self._random_mask_strategy = dataset.RandomMaskStrategy.ALL_TOKENS
+        self._tokenizer = tokenizer.get_tokenizer()
+        self._num_workers = self.config.data.num_dataset_workers
+        self._persistent_workers = True
+        self._pin_memory = True
+        self.seq_len = self.config.data.max_seq_length
+        self.noise_scale = 0.01
+        self.prefix_len = self.config.model.prefix_len
+        self.dataloader_type: Literal["single", "cyclic"] = "single"
+        self.rampup_batch_size = None
+        # Compute effective global batch size from config
+        self.global_batch_size = infer_global_batch_size(
+            micro_batch_size=self.config.training.micro_batch_size,
+            num_nodes=self.config.distributed.num_nodes,
+            devices=self.config.distributed.devices,
+            accumulate_grad_batches=self.config.training.accumulate_grad_batches,
+            tensor_model_parallel_size=self.config.distributed.tensor_model_parallel_size,
+            pipeline_model_parallel_size=self.config.distributed.pipeline_model_parallel_size,
+        )
         self.setup()
         
         
-
+        
     def setup(self, stage: str = "") -> None:
         # env = lmdb.open('/nfs_beijing_os/linlinchao/afdb/rep_mem_v2/afdb_rep_mem.db', 
         #                 readonly=True, 
@@ -73,7 +68,7 @@ class ESMDataModule(DataInterfaceBase):
         
         # train_cluster, val_cluster, test_cluster = split_ds('/nfs_beijing_os/linlinchao/afdb/rep_mem_v2/afdb_rep_mem-cluster.msgpack', '9990, 5, 5', seed=self.hparams.seed)
         
-        self.env = lmdb.open(self.hparams.database_path, 
+        self.env = lmdb.open(self.config.data.database_path, 
                         readonly=True, 
                         lock=False, 
                         readahead=True, 
@@ -81,18 +76,18 @@ class ESMDataModule(DataInterfaceBase):
                         create=False, 
                         map_size=1099511627776)
         
-        train_cluster, val_cluster, test_cluster = split_ds(self.hparams.cluster_path, self.hparams.data_splits, seed=self.hparams.seed)
+        train_cluster, val_cluster, test_cluster = split_ds(self.config.data.cluster_path, self.config.data.data_splits, seed=self._seed)
         
         self.train_cluster = train_cluster
         self.val_cluster = val_cluster
         self.test_cluster = test_cluster
         
         self.data_sampler = MegatronDataSampler(
-            seq_len=self.hparams.max_seq_length,
-            micro_batch_size=self.hparams.micro_batch_size,
-            global_batch_size=self.hparams.global_batch_size,
-            dataloader_type=self.hparams.dataloader_type,
-            rampup_batch_size=self.hparams.rampup_batch_size,
+            seq_len=self.config.data.max_seq_length,
+            micro_batch_size=self.config.training.micro_batch_size,
+            global_batch_size=self.global_batch_size,
+            dataloader_type=self.dataloader_type,
+            rampup_batch_size=self.rampup_batch_size,
         )
         
 
@@ -118,16 +113,16 @@ class ESMDataModule(DataInterfaceBase):
         self.update_init_global_step()
         
         dataset = LMDBDataset(self.env, 
-                              self.train_cluster, seq_len=self.hparams.max_seq_length, 
-                              process_fn=None, seed=self.hparams.seed, task_type='mlm', data_process_fn=lambda x: self.data_process_fn(x, mode=mode))
+                              self.train_cluster, seq_len=self.config.data.max_seq_length, 
+                              process_fn=None, seed=self._seed, task_type='mlm', data_process_fn=lambda x: self.data_process_fn(x, mode=mode))
         loader = DataLoader(dataset,
-                            num_workers=self.hparams.num_workers, # 
+                            num_workers=self._num_workers, # 
                             pin_memory=True)
         return loader
     
     def data_process_fn(self, data_list, mode='train'):
         segment_num = 5
-        noise_scale = self.hparams.noise_scale
+        noise_scale = self.noise_scale
         random.shuffle(data_list)
         data_id = []
         seq_ids, struct_ids, coords, lens = [], [], [], []
@@ -138,19 +133,21 @@ class ESMDataModule(DataInterfaceBase):
         dataidx = 0
         for data in data_list:
             L = data['seq_ids'].shape[0]
-            if mode=='train':
-                n = int(torch.randint(1, segment_num+1, (1,)))
-                k = int(torch.randint(1, n+1, (1,)))
-            else:
-                n=1
-                k=1
+            # if mode=='train':
+            #     n = int(torch.randint(1, segment_num+1, (1,)))
+            #     k = int(torch.randint(1, n+1, (1,)))
+            # else:
+            #     n=1
+            #     k=1
+            n=1
+            k=1
             unmasked = torch.tensor(Segment(L, n, k))
-            L = unmasked.shape[0] + self.hparams.prefix_len
+            L = unmasked.shape[0] + self.prefix_len
             
             if (start+L > self.seq_len) and (start<self.seq_len):
                 L = self.seq_len-start
-                seq_id_tmp = torch.from_numpy(data['seq_ids'])[unmasked][:L-self.hparams.prefix_len]
-                coords_tmp = torch.from_numpy(data['cords'])[0,unmasked][:L-self.hparams.prefix_len]
+                seq_id_tmp = torch.from_numpy(data['seq_ids'])[unmasked][:L-self.prefix_len]
+                coords_tmp = torch.from_numpy(data['cords'])[0,unmasked][:L-self.prefix_len]
             else:
                 seq_id_tmp = torch.from_numpy(data['seq_ids'])[unmasked]
                 coords_tmp = torch.from_numpy(data['cords'])[0,unmasked]
@@ -160,10 +157,10 @@ class ESMDataModule(DataInterfaceBase):
             center = coords_tmp[:,0].mean(dim=0)[None,None]
             coords_tmp = coords_tmp-center
             # add k prefix tokens
-            seq_id_tmp = torch.cat([torch.zeros((self.hparams.prefix_len,), dtype=torch.int64)+34, seq_id_tmp], dim=0)
-            coords_tmp = torch.cat([torch.zeros((self.hparams.prefix_len, 37, 3)), coords_tmp], dim=0)
+            seq_id_tmp = torch.cat([torch.zeros((self.prefix_len,), dtype=torch.int64)+34, seq_id_tmp], dim=0)
+            coords_tmp = torch.cat([torch.zeros((self.prefix_len, 37, 3)), coords_tmp], dim=0)
                 
-            position.append(torch.cat([-torch.arange(1, 1+self.hparams.prefix_len), unmasked]))
+            position.append(torch.cat([-torch.arange(1, 1+self.prefix_len), unmasked]))
             blocks = coords_tmp[..., :3, :]+noise_scale*torch.randn_like(coords_tmp[..., :3, :])
             types = torch.arange(blocks.shape[1])[None].repeat(blocks.shape[0],1)
             blocks_list.append(blocks)
@@ -188,7 +185,7 @@ class ESMDataModule(DataInterfaceBase):
         # blocks[torch.isnan(blocks)] = 0
         types = torch.cat(types_list, dim=0)
         data_id = torch.cat(data_id)
-        position = torch.cat(position, dim=0)+self.hparams.prefix_len
+        position = torch.cat(position, dim=0)+self.prefix_len
         loss_mask = position>=6
         
         

@@ -103,135 +103,62 @@ def build_MLP(n_layers,dim_in, dim_hid, dim_out, dropout = 0.0, activation=nn.Re
     layers.append(nn.Linear(dim_hid, dim_out))
     return nn.Sequential(*layers)
 
-class GeoFeat(nn.Module):
-    def __init__(self, geo_layer, num_hidden, virtual_atom_num, dropout=0.0):
-        super(GeoFeat, self).__init__()
-        self.__dict__.update(locals())
-        self.virtual_atom = nn.Linear(num_hidden, virtual_atom_num*3)
-        self.virtual_direct = nn.Linear(num_hidden, virtual_atom_num*3)
-        self.we_condition = build_MLP(geo_layer, 4*virtual_atom_num*3+9+16+32, num_hidden, num_hidden, dropout)
-        self.MergeEG = nn.Linear(num_hidden+num_hidden, num_hidden)
 
-    def forward(self, h_V, h_E, attn_mask, trans, rot):
-        B, L = h_V.shape[:2]
-        V_local = self.virtual_atom(h_V)
-        V_edge = self.virtual_direct(h_E)
-        Ks = torch.cat([V_edge,V_local[:,:,None].repeat(1,1,L,1)], dim=-1)
-        Ks = Ks.view(*V_edge.shape[:-1], -1, 3)
+class FoldRepInputLayer(nn.Module):
+    def __init__(self, structure_dim, output_dim=1280, modality=['structure', 'sequence']):
+        super(FoldRepInputLayer, self).__init__()
+        self.modality = modality
+        if 'structure' in modality:
+            self.struct_embedding = build_MLP(2, structure_dim, output_dim, output_dim)
+        if 'sequence' in modality:
+            self.seq_embedding = nn.Embedding(35, output_dim)
+            
         
-        Qt = (rot[...,None,:,:]@Ks[...,None])[...,0]+trans[...,None,:]
-        
-        RK = rot@rearrange(V_local.view(*V_local.shape[:-1],1,-1,3), 'b i j k d -> b i j d k')
-        QRK = V_local.view(*V_local.shape[:-1],1,-1,3)[...,None,:]@rearrange(RK, 'b i j k d -> b i j d k')[...,None]
-        QRK = QRK[...,0,0]
-        
-        
-        D = rbf(trans.norm(dim=-1), 0, 50, 16)
-        H = torch.cat([Ks.reshape(B,L,L,-1), Qt.reshape(B,L,L,-1), rot.reshape(B,L,L,-1), D, QRK], dim=-1)
-        G_e = self.we_condition(H.view(B*L*L,-1)).view(B,L,L,-1)
-        h_E = self.MergeEG(torch.cat([h_E, G_e], dim=-1))
-        return h_E*attn_mask[...,None]
-
-class GeoAttn(nn.Module):
-    def __init__(self, attn_layer, num_hidden, num_V, num_E, dropout=0.0):
-        super(GeoAttn, self).__init__()
-        self.__dict__.update(locals())
-        self.num_heads = 4
-        self.W_V = nn.Sequential(nn.Linear(num_E, num_hidden),
-                                nn.GELU())
-                                
-        self.Bias = nn.Sequential(
-                                nn.Linear(2*num_V+num_E, num_hidden),
-                                nn.ReLU(),
-                                nn.Linear(num_hidden,num_hidden),
-                                nn.ReLU(),
-                                nn.Linear(num_hidden,self.num_heads))
-        self.W_O = nn.Linear(num_hidden, num_V, bias=False)
-        self.gate = nn.Linear(num_hidden, num_V)
+    def forward(self, struct_x, seq_x):
+        out_x = 0
+        if 'structure' in self.modality:
+            B, L, _ = struct_x.shape
+            out_x += self.struct_embedding(struct_x.reshape(B*L,-1)).reshape(B,L,-1)
+        if 'sequence' in self.modality:
+            out_x += self.seq_embedding(seq_x)
+        return out_x
 
 
-    def forward(self, h_V, h_E, attn_mask):
-        h_V_skip = h_V
-        L = h_V.shape[1]
-        n_heads = self.num_heads
-        d = int(self.num_hidden / n_heads)
-        w = self.Bias(torch.cat([h_V[:,:,None].repeat(1,1,L,1), h_E, h_V[:,None,:].repeat(1,L,1,1)], dim=-1))
-        attend_logits = w/np.sqrt(d)
-        V = self.W_V(h_E)
-        attend = F.softmax(attend_logits-(~attn_mask[...,None])*999999999, dim=-2)
-        h_V = attend[...,None]*V.reshape(*V.shape[:-1],4,-1)
-        h_V = h_V.sum(-3).reshape(*h_V.shape[:2],-1)
-        h_V_gate = F.sigmoid(self.gate(h_V))
-        dh = self.W_O(h_V)*h_V_gate
-        h_V = h_V_skip + dh
-        return h_V
-
-
-class UpdateNode(nn.Module):
-    def __init__(self, num_hidden):
-        super().__init__()
-        self.dense = nn.Sequential(
-            nn.BatchNorm1d(num_hidden),
-            nn.Linear(num_hidden, num_hidden*4),
-            nn.ReLU(),
-            nn.Linear(num_hidden*4, num_hidden),
-            nn.BatchNorm1d(num_hidden)
-        )
-        self.V_MLP_g = nn.Sequential(
-                                nn.Linear(num_hidden, num_hidden),
-                                nn.ReLU(),
-                                nn.Linear(num_hidden,num_hidden),
-                                nn.ReLU(),
-                                nn.Linear(num_hidden,num_hidden))
-    
-    def forward(self, h_V, attn_mask):
-        B, L, d = h_V.shape
-        dh = self.dense(h_V.view(B*L,d)).view(B,L,d)
-        h_V = h_V + dh
-
-        # # ============== global attn - virtual frame
-        select = attn_mask.sum(dim=-1)>0
-        c_V = (h_V*select[...,None]).sum(dim=1)/select.sum(dim=1, keepdim=True)
-
-        h_V = h_V * F.sigmoid(self.V_MLP_g(c_V))[:,None]
-        return h_V
-
-
-
-
-
-class StructureSimEncoder2(nn.Module):
+class FoldRepEncoder(nn.Module):
     def __init__(self, 
                  encoder_layer,
-                 hidden_dim, 
+                 d_model=1280,
+                 n_heads=20,
                  input_node_dim=9,
                  scale=100):
         """ Graph labeling network """
-        super(StructureSimEncoder2, self).__init__()
+        super(FoldRepEncoder, self).__init__()
         self.__dict__.update(locals())
 
 
-        self.node_embedding = build_MLP(2, input_node_dim, hidden_dim, 1280)
+        # self.node_embedding = build_MLP(2, input_node_dim, hidden_dim, 1280)
         # self.edge_embedding = build_MLP(2, 85, hidden_dim, 1280)
         
         self.encoder_layers=TransformerStack(
-            1280, 20, 1, encoder_layer, scale_residue=False, n_layers_geom=0, is_geo_attn=True, scale=scale
+            d_model, n_heads, 1, encoder_layer, scale_residue=False, n_layers_geom=0, is_geo_attn=True, scale=scale
         )
-        self.proj = nn.Linear(1280, hidden_dim)
+        # self.proj = nn.Linear(1280, hidden_dim)
         
 
-    def forward(self, position, V,  blocks, attn_mask):
-        B, L, _ = V.shape
+    def forward(self, position, h_V,  blocks, attn_mask, input_modality=['structure', 'sequence']):
+        B, L, _ = h_V.shape
         # h_V = self.node_embedding(self.type_embedding(types).reshape(B,L,-1))
-        h_V = self.node_embedding(V.reshape(B*L,-1)).reshape(B,L,-1)
+        # h_V = self.node_embedding(V.reshape(B*L,-1)).reshape(B,L,-1)
+        if 'structure' not in input_modality:
+            blocks = torch.zeros_like(blocks)
         ## TO DO 计算图
         h_V = self.encoder_layers(position, h_V, attn_mask, blocks=blocks)
-        h_V = self.proj(h_V)
+        # h_V = self.proj(h_V)
         return h_V
     
 
 
-class StructureDecoder(nn.Module):
+class FoldRepDecoder(nn.Module):
     def __init__(
         self,
         d_model=1280,
@@ -241,21 +168,43 @@ class StructureDecoder(nn.Module):
     ):
         super().__init__()
         self.decoder_channels = d_model
-        self.vq_enc = nn.Linear(128, d_model)
+        # self.vq_enc = nn.Linear(128, d_model)
         self.decoder_stack = TransformerStack(
             d_model, n_heads, 1, n_layers, scale_residue=False, n_layers_geom=0, is_geo_attn=False, scale=100
         )
-        self.pred_head_struct = nn.Linear(d_model, 3*5)
+        # self.pred_head_struct = nn.Linear(d_model, 3*5)
         
 
     def forward(
         self,
         position,
-        z_q,
+        x,
         attention_mask = None,
     ): 
-        x = self.vq_enc(z_q)
+        # x = self.vq_enc(z_q)
         x = self.decoder_stack(position, x, attn_mask=attention_mask)
-        B, L, _ = x.shape
-        pred_x = self.pred_head_struct(x).view(B, L, -1, 3)
-        return pred_x, x
+        return x
+        # B, L, _ = x.shape
+        # pred_x = self.pred_head_struct(x).view(B, L, -1, 3)
+        # return pred_x, x
+
+class FoldRepModalityHead(nn.Module):
+    def __init__(self, d_model, modality=['structure', 'sequence']):
+        super(FoldRepModalityHead, self).__init__()
+        self.d_model = d_model
+        self.modality = modality
+        if 'structure' in modality:
+            self.struct_head = nn.Linear(d_model, 3*5)
+        if 'sequence' in modality:
+            self.seq_head = nn.Linear(d_model, 35)
+
+        
+    def forward(self, x):
+        out = {}
+        if 'structure' in self.modality:
+            struct_x = self.struct_head(x)
+            out['struct_x'] = struct_x
+        if 'sequence' in self.modality:
+            seq_x = self.seq_head(x)
+            out['seq_x'] = seq_x
+        return out

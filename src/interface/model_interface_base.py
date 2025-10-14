@@ -135,12 +135,12 @@ class ModelInterfaceBase(
             return None
         return self.forward_step(batch)
 
-    def training_loss_reduction(self) -> MegatronLossType:
-        return self.loss_reduction_class()
+    # def training_loss_reduction(self):
+    #     return self.compute_custom_loss
 
-    def validation_loss_reduction(self) -> MegatronLossType:
-        return self.loss_reduction_class(validation_step=True)
+    # def validation_loss_reduction(self):
+    #     return self.compute_custom_loss
 
-    def test_loss_reduction(self) -> MegatronLossType:
-        return self.loss_reduction_class(validation_step=True)
+    # def test_loss_reduction(self):
+    #     return self.loss_reduction_class(validation_step=True)
 
