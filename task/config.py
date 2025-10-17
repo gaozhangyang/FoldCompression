@@ -147,6 +147,9 @@ class ExperimentConfig:
     experiment_name: str
     infer_feats: int = 0
     custom_checkpoint_path: str = ""
+    eval_every_n_steps: int = 0
+    eval_data_root: str = ""
+    eval_labels_tsv: str = ""
 
 
 @dataclass
@@ -250,5 +253,8 @@ class TrainingConfigBundle:
                 experiment_name=args.experiment_name,
                 infer_feats=args.infer_feats,
                 custom_checkpoint_path=args.custom_checkpoint_path,
+                eval_every_n_steps=args.eval_every_n_steps,
+                eval_data_root=args.eval_data_root,
+                eval_labels_tsv=args.eval_labels_tsv,
             ),
         )

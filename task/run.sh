@@ -473,7 +473,108 @@ CUDA_VISIBLE_DEVICES=2 python ./task/main.py \
     --use_dino 3
 
 ### ============ mask struct+ compression loss ============
-CUDA_VISIBLE_DEVICES=0 python ./task/main.py \
+CUDA_VISIBLE_DEVICES=4 python ./task/main.py \
+    --cluster-path /mnt/shared-storage-user/beam/gaozhangyang/dataset/afdb_rep_mem-cluster.msgpack \
+    --database-path /mnt/shared-storage-user/beam/gaozhangyang/dataset/afdb_rep_mem.db \
+    --data-splits '9990, 5, 5' \
+    --precision="bf16" \
+    --num-gpus 1 \
+    --num-nodes 1 \
+    --num-steps 500000 \
+    --val-check-interval 1000 \
+    --result-dir ./results/struct_compress/ \
+    --min-seq-length 512 \
+    --max-seq-length 512 \
+    --resume-if-exists \
+    --limit-val-batches 10 \
+    --micro-batch-size 16 \
+    --num-layers 12 \
+    --hidden-size 480 \
+    --num-attention-head 20 \
+    --ffn-hidden-size 1920 \
+    --tensor-model-parallel-size 1 \
+    --create-tensorboard-logger \
+    --wandb-offline 1 \
+    --lr 1e-5 \
+    --prefix_len 32 \
+    --experiment-name prefix32_nn10_in_str_out_str_contrastive \
+    --log-every-n-steps 100 \
+    --dec_layers 12 \
+    --infer_feats 0 \
+    --nn_neighbors 10 \
+    --input_modality structure \
+    --output_modality structure \
+    --use_dino 2
+
+
+CUDA_VISIBLE_DEVICES=5 python ./task/main.py \
+    --cluster-path /mnt/shared-storage-user/beam/gaozhangyang/dataset/afdb_rep_mem-cluster.msgpack \
+    --database-path /mnt/shared-storage-user/beam/gaozhangyang/dataset/afdb_rep_mem.db \
+    --data-splits '9990, 5, 5' \
+    --precision="bf16" \
+    --num-gpus 1 \
+    --num-nodes 1 \
+    --num-steps 500000 \
+    --val-check-interval 1000 \
+    --result-dir ./results/struct_compress/ \
+    --min-seq-length 512 \
+    --max-seq-length 512 \
+    --resume-if-exists \
+    --limit-val-batches 10 \
+    --micro-batch-size 16 \
+    --num-layers 12 \
+    --hidden-size 480 \
+    --num-attention-head 20 \
+    --ffn-hidden-size 1920 \
+    --tensor-model-parallel-size 1 \
+    --create-tensorboard-logger \
+    --wandb-offline 1 \
+    --lr 1e-4 \
+    --prefix_len 32 \
+    --experiment-name prefix32_nn10_in_str_out_str_contrastive_lr1e4 \
+    --log-every-n-steps 100 \
+    --dec_layers 12 \
+    --infer_feats 0 \
+    --nn_neighbors 10 \
+    --input_modality structure \
+    --output_modality structure \
+    --use_dino 2
+
+CUDA_VISIBLE_DEVICES=6 python ./task/main.py \
+    --cluster-path /mnt/shared-storage-user/beam/gaozhangyang/dataset/afdb_rep_mem-cluster.msgpack \
+    --database-path /mnt/shared-storage-user/beam/gaozhangyang/dataset/afdb_rep_mem.db \
+    --data-splits '9990, 5, 5' \
+    --precision="bf16" \
+    --num-gpus 1 \
+    --num-nodes 1 \
+    --num-steps 500000 \
+    --val-check-interval 1000 \
+    --result-dir ./results/struct_compress/ \
+    --min-seq-length 512 \
+    --max-seq-length 512 \
+    --resume-if-exists \
+    --limit-val-batches 10 \
+    --micro-batch-size 16 \
+    --num-layers 12 \
+    --hidden-size 480 \
+    --num-attention-head 20 \
+    --ffn-hidden-size 1920 \
+    --tensor-model-parallel-size 1 \
+    --create-tensorboard-logger \
+    --wandb-offline 1 \
+    --lr 1e-5 \
+    --prefix_len 32 \
+    --experiment-name prefix32_mstr_compression \
+    --log-every-n-steps 100 \
+    --dec_layers 12 \
+    --infer_feats 0 \
+    --nn_neighbors 10 \
+    --input_modality structure \
+    --output_modality structure \
+    --use_dino 4
+
+
+CUDA_VISIBLE_DEVICES=7 python ./task/main.py \
     --cluster-path /mnt/shared-storage-user/beam/gaozhangyang/dataset/afdb_rep_mem-cluster.msgpack \
     --database-path /mnt/shared-storage-user/beam/gaozhangyang/dataset/afdb_rep_mem.db \
     --data-splits '9990, 5, 5' \
@@ -505,3 +606,137 @@ CUDA_VISIBLE_DEVICES=0 python ./task/main.py \
     --input_modality structure \
     --output_modality structure \
     --use_dino 4
+
+
+CUDA_VISIBLE_DEVICES=3 python ./task/main.py \
+    --cluster-path /mnt/shared-storage-user/beam/gaozhangyang/dataset/afdb_rep_mem-cluster.msgpack \
+    --database-path /mnt/shared-storage-user/beam/gaozhangyang/dataset/afdb_rep_mem.db \
+    --data-splits '9990, 5, 5' \
+    --precision="bf16" \
+    --num-gpus 1 \
+    --num-nodes 1 \
+    --num-steps 500000 \
+    --val-check-interval 1000 \
+    --result-dir ./results/struct_compress/ \
+    --min-seq-length 512 \
+    --max-seq-length 512 \
+    --resume-if-exists \
+    --limit-val-batches 10 \
+    --micro-batch-size 16 \
+    --num-layers 12 \
+    --hidden-size 480 \
+    --num-attention-head 20 \
+    --ffn-hidden-size 1920 \
+    --tensor-model-parallel-size 1 \
+    --create-tensorboard-logger \
+    --wandb-offline 1 \
+    --lr 1e-4 \
+    --prefix_len 32 \
+    --experiment-name run2_prefix32_in_str_out_str_dino_lr1e4 \
+    --log-every-n-steps 100 \
+    --dec_layers 12 \
+    --infer_feats 0 \
+    --nn_neighbors 10 \
+    --input_modality structure \
+    --output_modality structure \
+    --use_dino 1
+
+CUDA_VISIBLE_DEVICES=2 python ./task/main.py \
+    --cluster-path /mnt/shared-storage-user/beam/gaozhangyang/dataset/afdb_rep_mem-cluster.msgpack \
+    --database-path /mnt/shared-storage-user/beam/gaozhangyang/dataset/afdb_rep_mem.db \
+    --data-splits '9990, 5, 5' \
+    --precision="bf16" \
+    --num-gpus 1 \
+    --num-nodes 1 \
+    --num-steps 500000 \
+    --val-check-interval 1000 \
+    --result-dir ./results/struct_compress/ \
+    --min-seq-length 512 \
+    --max-seq-length 512 \
+    --resume-if-exists \
+    --limit-val-batches 10 \
+    --micro-batch-size 16 \
+    --num-layers 12 \
+    --hidden-size 480 \
+    --num-attention-head 20 \
+    --ffn-hidden-size 1920 \
+    --tensor-model-parallel-size 1 \
+    --create-tensorboard-logger \
+    --wandb-offline 1 \
+    --lr 1e-4 \
+    --prefix_len 32 \
+    --experiment-name run2_prefix32_in_str_out_str_lr1e4 \
+    --log-every-n-steps 100 \
+    --dec_layers 12 \
+    --infer_feats 0 \
+    --nn_neighbors 10 \
+    --input_modality structure \
+    --output_modality structure \
+    --use_dino 0
+
+
+CUDA_VISIBLE_DEVICES=0 python ./task/main.py \
+    --cluster-path /mnt/shared-storage-user/beam/gaozhangyang/dataset/afdb_rep_mem-cluster.msgpack \
+    --database-path /mnt/shared-storage-user/beam/gaozhangyang/dataset/afdb_rep_mem.db \
+    --data-splits '9990, 5, 5' \
+    --precision="bf16" \
+    --num-gpus 1 \
+    --num-nodes 1 \
+    --num-steps 500000 \
+    --val-check-interval 1000 \
+    --result-dir ./results/struct_compress/ \
+    --min-seq-length 512 \
+    --max-seq-length 512 \
+    --resume-if-exists \
+    --limit-val-batches 10 \
+    --micro-batch-size 16 \
+    --num-layers 12 \
+    --hidden-size 480 \
+    --num-attention-head 20 \
+    --ffn-hidden-size 1920 \
+    --tensor-model-parallel-size 1 \
+    --create-tensorboard-logger \
+    --wandb-offline 1 \
+    --lr 1e-4 \
+    --prefix_len 32 \
+    --experiment-name eval_nn10_in_str_out_str_contrastive_lr1e4 \
+    --log-every-n-steps 100 \
+    --dec_layers 12 \
+    --infer_feats 0 \
+    --nn_neighbors 10 \
+    --input_modality structure \
+    --output_modality structure \
+    --use_dino 2
+
+CUDA_VISIBLE_DEVICES=1 python ./task/main.py \
+    --cluster-path /mnt/shared-storage-user/beam/gaozhangyang/dataset/afdb_rep_mem-cluster.msgpack \
+    --database-path /mnt/shared-storage-user/beam/gaozhangyang/dataset/afdb_rep_mem.db \
+    --data-splits '9990, 5, 5' \
+    --precision="bf16" \
+    --num-gpus 1 \
+    --num-nodes 1 \
+    --num-steps 500000 \
+    --val-check-interval 1000 \
+    --result-dir ./results/struct_compress/ \
+    --min-seq-length 512 \
+    --max-seq-length 512 \
+    --resume-if-exists \
+    --limit-val-batches 10 \
+    --micro-batch-size 16 \
+    --num-layers 12 \
+    --hidden-size 480 \
+    --num-attention-head 20 \
+    --ffn-hidden-size 1920 \
+    --tensor-model-parallel-size 1 \
+    --create-tensorboard-logger \
+    --wandb-offline 1 \
+    --lr 1e-5 \
+    --prefix_len 32 \
+    --experiment-name eval_nn10_in_str_out_str_contrastive_lr1e5 \
+    --log-every-n-steps 100 \
+    --dec_layers 12 \
+    --infer_feats 0 \
+    --nn_neighbors 10 \
+    --input_modality structure \
+    --output_modality structure \
+    --use_dino 2

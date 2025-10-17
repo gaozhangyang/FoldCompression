@@ -122,14 +122,14 @@ class FoldRepModel(LanguageModule):
             Predicted coordinates or features
         """
         if 'structure' in self.input_modality:
-            if self.use_dino==4:
-                isvalid = (attn_mask.sum(dim=-2)>0)
+            isvalid = (attn_mask.sum(dim=-2)>0)
+            # if self.use_dino==4:
+            #     isvalid = (attn_mask.sum(dim=-2)>0)
                 
-            else:
-                isvalid = seq_ids!=-1 # 这里看你有bug,因为seqid似乎没有-1,但是之前代码都是这么写的, 暂时不改,怕和ckpt不兼容
+            # else:
+            #     isvalid = seq_ids!=-1 # 这里看你有bug,因为seqid似乎没有-1,但是之前代码都是这么写的, 暂时不改,怕和ckpt不兼容
             V = self.construct_nn_input(blocks, isvalid, nn_neighbors=getattr(self.config, 'nn_neighbors', 9))
-            if self.use_dino==4:
-                V = V * isvalid[:,:,None]
+            V = V * isvalid[:,:,None]
         else:
             V = None
             

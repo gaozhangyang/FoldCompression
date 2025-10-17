@@ -14,7 +14,7 @@
         "--database-path", "/mnt/shared-storage-user/gaozhangyang/workspace/FoldCompression/data/afdb_rep_mem_debug.db",
         // "--cluster-path", "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/data/train_keys_subset.msgpack",
         // "--database-path", "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/data/afdb_rep_mem_debug.db",
-        "--precision=bf16",
+        "--precision=fp32",
         "--num-gpus", "1",
         "--num-nodes", "1",
         "--num-steps", "1000000001",
@@ -38,7 +38,7 @@
         "--dec_layers", "12",
         "--input_modality", "structure",
         "--output_modality", "structure",
-        "--use_dino", "1",
+        "--use_dino", "0",
         "--nn_neighbors", "10",
         // "--enc_layers", "15",
         // "--custom_checkpoint_path", "/nfs_beijing/kubeflow-user/zhangyang_2024/workspace/StructCompression/results/struct_compress/DecLayer12_svckpt4/epoch=0-step=376999-consumed_samples=48256000.pt"

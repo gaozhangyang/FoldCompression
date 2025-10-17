@@ -485,6 +485,29 @@ def add_experiment_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         help="Name of the Hydra config to use"
     )
     
+    parser.add_argument(
+        "--eval-every-n-steps",
+        type=int,
+        required=False,
+        default=5000,
+        help="Evaluate every n steps. Default is 0.",
+    )
+    parser.add_argument(
+        "--eval-data-root",
+        type=str,
+        required=False,
+        default="/mnt/shared-storage-user/gaozhangyang/workspace/FoldCompression/homology_analysis/data/ASTRAL40_pdbstyle/pdbstyle-2.08/",
+        help="Path to the evaluation data root directory.",
+    )
+    parser.add_argument(
+        "--eval-labels-tsv",
+        type=str,
+        required=False,
+        default="/mnt/shared-storage-user/gaozhangyang/workspace/FoldCompression/homology_analysis/data/ASTRAL40_pdbstyle/labels.tsv",
+        help="Path to the evaluation labels.tsv file.",
+    )
+    
+    
     return parser
 
 

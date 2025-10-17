@@ -14,6 +14,7 @@ from megatron.core.optimizer import OptimizerConfig
 from bionemo.llm.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
 # from src.data.protein import Protein
 from torch.cuda import empty_cache
+from homology_analysis.periodic_eval import run_remote_homology_eval
 
 
 class BionemoLightningModule(
@@ -58,7 +59,50 @@ class BionemoLightningModule(
         self.dino_center: Optional[torch.Tensor] = None
         self.dino_weight: float = 1.0
         self.teacher_module: Optional[torch.nn.Module] = None
+        # Periodic remote homology evaluation settings (safe defaults if not provided)
+        exp_cfg = getattr(config, 'experiment', None)
+        self.eval_every_n_steps: int = int(getattr(exp_cfg, 'eval_every_n_steps', 0) or 0)
+        self.eval_data_root: Optional[str] = getattr(exp_cfg, 'eval_data_root', None)
+        self.eval_labels_tsv: Optional[str] = getattr(exp_cfg, 'eval_labels_tsv', None)
+        self.eval_batch_size: int = int(getattr(exp_cfg, 'eval_batch_size', 128))
+        self.eval_min_len: int = int(getattr(exp_cfg, 'eval_min_len', 10))
+        self.eval_topk_use: int = int(getattr(exp_cfg, 'eval_topk_use', 10))
+        self.eval_topk_query: int = int(getattr(exp_cfg, 'eval_topk_query', 100000))
+        self.eval_bootstrap_B: int = int(getattr(exp_cfg, 'eval_bootstrap_B', 1000))
+        self.eval_out_json: Optional[str] = getattr(exp_cfg, 'eval_out_json', None)
+        self._last_eval_step: int = -1
         
+    def _unwrap_module(self, obj: torch.nn.Module) -> torch.nn.Module:
+        """Robustly unwrap nested .module chains to find the core model.
+
+        Preference order:
+        1) First object that is an instance of FoldRepModel
+        2) First object that defines compute_custom_loss
+        3) Otherwise, the deepest reachable .module leaf
+        """
+        try:
+            seen = set()
+            current = obj
+            best = current
+            for _ in range(12):
+                if isinstance(current, FoldRepModel):
+                    return current
+                if hasattr(current, 'compute_custom_loss'):
+                    best = current
+                if hasattr(current, 'module'):
+                    nxt = getattr(current, 'module')
+                    if nxt is current:
+                        break
+                    if id(nxt) in seen:
+                        break
+                    seen.add(id(nxt))
+                    current = nxt
+                    continue
+                break
+            return best if best is not None else obj
+        except Exception:
+            return obj
+
     def set_config(self):
         self.config = FoldRepModelConfig(
             enc_layers=self.enc_layers,
@@ -101,7 +145,8 @@ class BionemoLightningModule(
     def loss_reduction(self, *args, **kwargs):
         # 返回 CustomLossWithReduction 类的实例
         from src.model.foldrep_model import CustomLossWithReduction
-        return CustomLossWithReduction(self.module.module.module, **kwargs)
+        core = self._unwrap_module(self.module)
+        return CustomLossWithReduction(core, **kwargs)
 
     def data_step(self, dataloader_iter: Iterator) -> Dict:
         """Move batch to GPU and select the correct parallel slice."""
@@ -252,6 +297,71 @@ class BionemoLightningModule(
             batch_center = feats_t.mean(dim=0, keepdim=True)
             self.dino_center = self.dino_center * self.dino_center_momentum + batch_center * (1.0 - self.dino_center_momentum)
         return loss * self.dino_weight
+
+    def _augment_half_batch_rt(self, batch: Dict) -> Dict:
+        """
+        从 batch 中随机取一半样本，进行 3D 旋转和平移增强；
+        增强后的半个 batch 与未增强的另一半合并，保持 batch size 不变。
+        仅对 `coords` 和 `blocks` 应用几何变换，其它键按选择重排或子集拷贝。
+        期望的 batch 键：
+        ['names', 'seq_ids', 'coords', 'division', 'loss_mask', 'blocks', 'data_id', 'position', 'use_dino', 'prefix_len']
+        """
+        if ('coords' not in batch) or ('blocks' not in batch):
+            return batch
+        coords = batch['coords']
+        blocks = batch['blocks']
+        if not isinstance(coords, torch.Tensor) or not isinstance(blocks, torch.Tensor):
+            return batch
+        if coords.ndim < 4 or blocks.ndim < 4:
+            return batch
+        B = coords.shape[0]
+        if B < 2:
+            return batch
+        device = coords.device
+        dtype = coords.dtype
+
+        # 随机选择一半样本进行增强；输出 batch 将由这些样本的
+        # [原始, 增强] 两份组成，总大小保持为 B。
+        perm = torch.randperm(B, device=device)
+        half = B // 2
+        sel = perm[:half]
+
+        # 生成每个选择样本的旋转和平移
+        R = random_rotation_matrix(half, device=device, dtype=dtype)  # [half,3,3]
+        t = torch.rand(half, 1, 1, 3, device=device, dtype=dtype)
+
+        # 变换 coords 与 blocks：期望形状 [B,L,K,3]
+        coords_sel = coords.index_select(0, sel)
+        blocks_sel = blocks.index_select(0, sel)
+        coords_aug = torch.einsum('blki,bij->blkj', coords_sel, R) + t
+        blocks_aug = torch.einsum('blki,bij->blkj', blocks_sel, R) + t
+
+        new_batch: Dict[str, any] = {}
+
+        # 需要根据 batch 维度处理的张量键
+        def is_batched_tensor(x: any) -> bool:
+            return isinstance(x, torch.Tensor) and x.dim() > 0 and x.size(0) == B
+
+        for k, v in batch.items():
+            if k in ('coords', 'blocks'):
+                # 顺序：[sel 原始, sel 增强]，保证同一对的非几何键相同
+                if k == 'coords':
+                    new_batch[k] = torch.cat([coords_sel, coords_aug], dim=0)
+                else:
+                    new_batch[k] = torch.cat([blocks_sel, blocks_aug], dim=0)
+            elif is_batched_tensor(v):
+                # 其它键对每个选中的样本复制两份，保持完全一致
+                sel_v = v.index_select(0, sel)
+                new_batch[k] = torch.cat([sel_v, sel_v], dim=0)
+            elif isinstance(v, list) and len(v) == B:
+                sel_idx = sel.tolist()
+                sel_list = [v[i] for i in sel_idx]
+                new_batch[k] = sel_list + sel_list
+            else:
+                # 标量或不以 batch 维开头的保留原值
+                new_batch[k] = v
+
+        return new_batch
 
     def _compute_contrastive_loss(self, feats_s1: torch.Tensor, feats_s2: torch.Tensor) -> torch.Tensor:
         # feats_s1, feats_s2: [B, D] global representations already normalized upstream
@@ -437,6 +547,9 @@ class BionemoLightningModule(
     def training_step(self, batch: Dict, batch_idx: Optional[int] = None) -> Dict:
         """Training step: set prefix length and run forward_step."""
         batch['prefix_len'] = self.prefix_len
+        # Geometry augmentation: take half of the batch, apply rotation+translation,
+        # and combine original(selected) with transformed(selected) to keep batch size.
+        # batch = self._augment_half_batch_rt(batch)
         
         # R = random_rotation_matrix()[0]
         # t = torch.rand(1,1,1,3).cuda().to(R.dtype)+3
@@ -493,9 +606,11 @@ class BionemoLightningModule(
         
         # 计算损失用于日志记录
         if self.is_on_logging_device():
-            loss, results = self.module.module.module.compute_custom_loss(outputs, batch)
+            core = self._unwrap_module(self.module)
+            loss, results = core.compute_custom_loss(outputs, batch)
             for key, val in results.items():
                 self.log("train_"+key, val.detach().item(), on_step=True, on_epoch=False, prog_bar=True)
+
         
         # # idx = 2
         # for idx in range(32):
@@ -516,6 +631,9 @@ class BionemoLightningModule(
         if self.use_dino==1:
             self._ema_update_teacher()
         
+        # Periodic remote homology evaluation (slow; only run on logging device)
+        self._maybe_periodic_remote_eval()
+
         return outputs
 
     def validation_step(self, batch: Dict, batch_idx: Optional[int] = None) -> Dict:
@@ -523,6 +641,9 @@ class BionemoLightningModule(
         """Validation step: set prefix length, eval mode, and run forward_step without gradient."""
 
         batch['prefix_len'] = self.prefix_len
+        
+        # Geometry augmentation: take half of the batch, apply rotation+translation,
+        # batch = self._augment_half_batch_rt(batch)
         with torch.no_grad():
             self.module.eval()
             if self.use_dino==1:
@@ -566,7 +687,8 @@ class BionemoLightningModule(
             
             outputs = self.forward_step(batch)
             if self.is_on_logging_device():
-                loss, results = self.module.module.module.compute_custom_loss(outputs, batch)
+                core = self._unwrap_module(self.module)
+                loss, results = core.compute_custom_loss(outputs, batch)
                 for key, val in results.items():
                     if key != 'loss':
                         self.log("val_"+key, val, on_step=True, on_epoch=False, prog_bar=True)
@@ -579,6 +701,73 @@ class BionemoLightningModule(
         if not batch:
             return None
         return self.forward_step(batch)
+
+    def _maybe_periodic_remote_eval(self) -> None:
+        """Run remote homology eval every N steps using helper, and log to W&B.
+
+        Only runs when:
+          - eval_every_n_steps > 0
+          - we are on logging device (rank 0)
+          - required paths are provided and exist
+          - global_step advanced since last eval
+        """
+        try:
+            if not self.is_on_logging_device():
+                return
+            if self.eval_every_n_steps <= 0:
+                return
+            step = int(getattr(self, 'global_step', 0))
+            if step < 0 or step == self._last_eval_step:
+                return
+            if step % self.eval_every_n_steps != 0:
+                return
+            if not self.eval_data_root or not self.eval_labels_tsv:
+                return
+            import os
+            if (not os.path.exists(self.eval_data_root)) or (not os.path.exists(self.eval_labels_tsv)):
+                return
+
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            results = run_remote_homology_eval(
+                self,
+                device=device,
+                data_root=self.eval_data_root,
+                labels_tsv=self.eval_labels_tsv,
+                out_json=self.eval_out_json,
+                batch_size=self.eval_batch_size,
+                min_len=self.eval_min_len,
+                topk_use=self.eval_topk_use,
+                topk_query=self.eval_topk_query,
+                bootstrap_B=self.eval_bootstrap_B,
+            )
+
+            # Log a compact subset to W&B via Lightning logger
+            agg = results.get('aggregate', {}) if isinstance(results, dict) else {}
+            log_dict = {}
+            for k in list(agg.keys()):
+                if any(x in k for x in ["mean_recall@10", "mean_map@10", "mean_ndcg@10", "mean_auprc", "hit@1"]):
+                    log_dict[f"remote_eval/{k}"] = float(agg[k])
+            log_dict["remote_eval/num_queries"] = int(results.get("num_queries", 0)) if isinstance(results, dict) else 0
+            log_dict["remote_eval/step"] = step
+
+            # Prefer Lightning self.log for scalar metrics
+            for key, val in log_dict.items():
+                try:
+                    self.log(key, val, on_step=True, on_epoch=False, prog_bar=False, logger=True)
+                except Exception:
+                    pass
+
+            # Also push raw dict to underlying experiment if it exists (e.g., Wandb)
+            try:
+                if hasattr(self, 'logger') and getattr(self.logger, 'experiment', None) is not None:
+                    self.logger.experiment.log(log_dict)
+            except Exception:
+                pass
+
+            self._last_eval_step = step
+        except Exception:
+            # Never crash training due to eval issues
+            pass
 
     def set_optimizer(self):
         optimizer = MegatronOptimizerModule(

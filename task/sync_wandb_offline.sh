@@ -7,4 +7,4 @@ wandb login   # 粘贴你的 API key
 wandb sync \
   --project foldtoken5 \
   --entity gaozhangyang \
-  ./offline-run-20250919_120636-c6m1ppw5
+  /mnt/shared-storage-user/gaozhangyang/workspace/FoldCompression/results/struct_compress/eval_nn10_in_str_out_str_contrastive_lr1e4/wandb/offline-run-20251016_160447-hf148u1n

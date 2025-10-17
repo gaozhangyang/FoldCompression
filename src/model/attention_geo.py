@@ -131,6 +131,8 @@ class MultiHeadAttention(nn.Module):
             
             query_BHLD = torch.cat([query_BHLD, Q_BHLD*struct_mask[:,None,:,None]], dim=-1)
             key_BHLD = torch.cat([key_BHLD, K_BHLD*struct_mask[:,None,:,None]], dim=-1)
+            # query_BHLD = torch.cat([query_BHLD, Q_BHLD], dim=-1)
+            # key_BHLD = torch.cat([key_BHLD, K_BHLD], dim=-1)
             context_BHLD = F.scaled_dot_product_attention(
                 query_BHLD, key_BHLD, value_BHLD, mask_BHLL
             )
